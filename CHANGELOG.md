@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — 2026-09-22
+
+- Player builds fail early when a `ChatGuardConfig` asset under a Resources folder holds a `cg_live_` server key
+  (`ChatGuardBuildCheck`, an `IPreprocessBuildWithReport`). Dedicated Server builds are exempt; publishable and test
+  keys pass. This is a build-time complement to the runtime warning that already fires when a server key runs in a
+  player.
+- `package.json` links the changelog and the MIT license; the package is published under
+  https://github.com/chatguard-dev/chat-guard-unity.
+
 ## 0.2.0 — 2026-09-22
 
 - **Breaking:** `ChatGuardClient.ModerateAsync` and `UnityWebRequestAwaiter` are removed; the package no

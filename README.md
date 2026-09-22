@@ -15,7 +15,9 @@ https://github.com/chatguard-dev/chat-guard-unity.git
 
 ## Where the key lives (read this first)
 
-A `cg_live_` server key in a client build is a leaked key. Three options, in order of preference:
+A `cg_live_` server key in a client build is a leaked key. Building a player with a `cg_live_` key in a
+`ChatGuardConfig` asset under Resources fails on purpose (Dedicated Server builds excepted), and a server
+key that reaches a player at runtime logs a warning. Three options, in order of preference:
 
 - **Authoritative server / host** (Mirror, Netcode for GameObjects, Photon Fusion host mode,
   your own backend): the server calls Chat Guard with a `cg_live_` key and broadcasts the result.
