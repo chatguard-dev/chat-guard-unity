@@ -267,6 +267,17 @@ Server-side thresholds are edited in the dashboard per project. The config's `ov
 `ModerationResult.Id` is the verdict id. Your server can report false positives/negatives with
 `POST /v1/feedback { "verdict_id": "...", "kind": "false_positive" }` (see `Documentation~/api-reference.md`).
 
+## Help and support
+
+- **Questions and bugs:** the `#help` forum on the Chat Guard Discord, https://discord.gg/udtGVvXsRE.
+  Include your Unity version, the package version (`package.json`) and the platform.
+- **Feature ideas:** `#feature-requests` on the same server; upvote an existing post instead of repeating it.
+- **Account, billing or player-data requests:** support@chatguard.dev, so we can look at your organization privately.
+- **Service status:** `#status` on Discord and https://github.com/chatguard-dev/status.
+
+Never post a server key (`cg_live_…` or `cg_test_…`) in public; the Discord server blocks messages
+that contain one. If a key leaks, revoke it on the dashboard's Keys page.
+
 ## About `Runtime/Core`
 
 `Runtime/Core` mirrors the filtering and scoring library used by the Chat Guard service (word
