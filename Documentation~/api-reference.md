@@ -49,7 +49,7 @@ Response:
   "degraded": false,
   "degraded_reason": null,
   "cached": false,
-  "quota": { "used": 12345, "limit": 50000, "window_ends_at": "2026-09-23T00:00:00+00:00" },
+  "quota": { "used": 1234, "limit": 10000, "window_ends_at": "2026-09-23T00:00:00+00:00" },
   "model": "jev-1.13.0",
   "latency_ms": 212
 }
@@ -80,7 +80,7 @@ test-key cap (`Retry-After` header and `retry_after` seconds), `5xx` unexpected.
 
 ## GET /v1/quota
 
-`{ "used": 12345, "limit": 50000, "window_ends_at": "…", "plan": "free", "overage": false }`
+`{ "used": 1234, "limit": 10000, "window_ends_at": "…", "plan": "free", "overage": false }`
 
 `used` is the number of model verdicts the organization received in the rolling 30-UTC-day window
 (all projects pooled); `limit` is the tier's allowance. The same counter feeds the `quota` object of

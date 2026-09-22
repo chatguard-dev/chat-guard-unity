@@ -2504,7 +2504,8 @@
           "custom_rules",
           "evidence_logging",
           "evidence_export",
-          "max_evidence_retention_days"
+          "max_evidence_retention_days",
+          "custom_volume"
         ],
         "type": "object",
         "properties": {
@@ -2553,6 +2554,9 @@
           "max_evidence_retention_days": {
             "type": "integer",
             "format": "int32"
+          },
+          "custom_volume": {
+            "type": "boolean"
           }
         }
       },
