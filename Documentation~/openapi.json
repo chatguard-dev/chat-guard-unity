@@ -1,0 +1,3456 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ChatGuard.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/plans": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "operationId": "ListPlans",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlanDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/polar": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "PolarWebhook",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAck"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/moderate": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "Moderate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ModerateRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quota": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "GetQuota",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/feedback": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "SubmitFeedback",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FeedbackRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/evidence/{projectId}/{authorOpaqueId}": {
+      "delete": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "EraseAuthorEvidence",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "authorOpaqueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceErasureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/providers": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "AuthProviders",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login/{provider}": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "return",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/callback/{provider}": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "return",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/orgs": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "ListOrgs",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrgSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "CreateOrg",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateOrgRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateOrgResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "GetOrg",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "UpdateOrg",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateOrgRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/usage": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "GetOrgUsage",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/members": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "ListMembers",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "InviteMember",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InviteMemberRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/members/{membershipId}": {
+      "patch": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "UpdateMember",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateMemberRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "RemoveMember",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/projects": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "ListProjects",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "operationId": "CreateProject",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateProjectRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "GetProject",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "UpdateProject",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateProjectRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "DeleteProject",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/keys": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ListKeys",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "CreateKey",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateKeyRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateKeyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/keys/{keyId}": {
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "RevokeKey",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/rules": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ListRules",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuleDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "CreateRule",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpsertRuleRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/rules/{ruleId}": {
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "UpdateRule",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpsertRuleRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "DeleteRule",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/usage": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "GetProjectUsage",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/verdicts": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ListVerdicts",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "degraded",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "key_kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedResponseOfVerdictRow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/evidence": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ListEvidence",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedResponseOfEvidenceRow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/evidence/export": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ExportEvidence",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EvidenceRow"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/evidence/authors/{authorOpaqueId}": {
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "EraseAuthorEvidenceDashboard",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "authorOpaqueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceErasureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/feedback": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "ListFeedback",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeedbackRow"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/test": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "TestProject",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectTestRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectTestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/billing": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "GetBilling",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/billing/checkout": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "CreateCheckout",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChoosePlanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedirectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/billing/change": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "ChangePlan",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChoosePlanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/billing/cancel": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "CancelSubscription",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{orgId}/billing/portal": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "CustomerPortal",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedirectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiKeyDto": {
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "prefix",
+          "created_at",
+          "last_used_at",
+          "revoked_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AuthProvidersResponse": {
+        "required": [
+          "providers",
+          "dev_login"
+        ],
+        "type": "object",
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dev_login": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BillingStatus": {
+        "required": [
+          "plan",
+          "plan_source",
+          "plan_pending",
+          "plan_ends_at",
+          "subscription",
+          "portal_available",
+          "purchasable_plans"
+        ],
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string"
+          },
+          "plan_source": {
+            "type": "string"
+          },
+          "plan_pending": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "plan_ends_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "subscription": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionView"
+              }
+            ]
+          },
+          "portal_available": {
+            "type": "boolean"
+          },
+          "purchasable_plans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CategoryThresholds": {
+        "type": "object",
+        "properties": {
+          "flag": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "description": "p at or above this value recommends at least Flag.",
+            "format": "double"
+          },
+          "hide": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "description": "p at or above this value recommends at least Hide.",
+            "format": "double"
+          },
+          "block": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "description": "p at or above this value recommends Block.",
+            "format": "double"
+          }
+        },
+        "description": "Per-category probability thresholds. A null level means that level is not used for the category.\nPlain settable properties so the API can persist the object as JSON (projects.thresholds)."
+      },
+      "ChoosePlanRequest": {
+        "required": [
+          "plan"
+        ],
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateKeyRequest": {
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateKeyResponse": {
+        "required": [
+          "key",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/ApiKeyDto"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "description": "The secret is returned exactly once."
+      },
+      "CreateOrgRequest": {
+        "required": [
+          "name",
+          "project_name",
+          "platform",
+          "default_language"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "project_name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "default_language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateOrgResponse": {
+        "required": [
+          "org",
+          "project"
+        ],
+        "type": "object",
+        "properties": {
+          "org": {
+            "$ref": "#/components/schemas/OrgDetail"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectDetail"
+          }
+        }
+      },
+      "CreateProjectRequest": {
+        "required": [
+          "name",
+          "platform",
+          "default_language"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "default_language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "EvidenceErasureResponse": {
+        "required": [
+          "evidence_deleted",
+          "verdicts_anonymized"
+        ],
+        "type": "object",
+        "properties": {
+          "evidence_deleted": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "verdicts_anonymized": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "EvidenceRow": {
+        "required": [
+          "id",
+          "ts",
+          "message_text",
+          "thread",
+          "verdict_log_id",
+          "author_opaque_id",
+          "expires_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_text": {
+            "type": "string"
+          },
+          "thread": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ModerateThreadEntry"
+            }
+          },
+          "verdict_log_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author_opaque_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FeedbackRequest": {
+        "type": "object",
+        "properties": {
+          "verdict_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "false_positive | false_negative"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FeedbackResponse": {
+        "required": [
+          "id",
+          "verdict_id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "verdict_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "FeedbackRow": {
+        "required": [
+          "id",
+          "verdict_id",
+          "kind",
+          "note",
+          "created_at",
+          "action",
+          "severity",
+          "message_hash"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "verdict_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "severity": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "message_hash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "HttpValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "InviteMemberRequest": {
+        "required": [
+          "email",
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LocalDiagnostics": {
+        "required": [
+          "matched_categories",
+          "suppressed_categories",
+          "block_list_hit",
+          "block_rule_id",
+          "applied_languages"
+        ],
+        "type": "object",
+        "properties": {
+          "matched_categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suppressed_categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "block_list_hit": {
+            "type": "boolean"
+          },
+          "block_rule_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "applied_languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MemberDto": {
+        "required": [
+          "id",
+          "user_id",
+          "email",
+          "name",
+          "role",
+          "status",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ModerateAuthor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "account_age_days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "prior_warnings": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ModerateChannel": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "global | team | dm | guild"
+          },
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "age_rating": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "e.g. \"16+\""
+          }
+        }
+      },
+      "ModerateRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "author": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModerateAuthor"
+              }
+            ]
+          },
+          "thread": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ModerateThreadEntry"
+            }
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModerateChannel"
+              }
+            ]
+          },
+          "request_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Client-generated id; the same id within 10 minutes replays the same response."
+          }
+        }
+      },
+      "ModerateResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "number",
+            "format": "double"
+          },
+          "verdicts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/VerdictProbability"
+            }
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TargetResponse"
+              }
+            ]
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degraded_reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/QuotaResponse"
+          },
+          "model": {
+            "type": "string"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ModerateThreadEntry": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrgDetail": {
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "plan",
+          "plan_source",
+          "plan_pending",
+          "plan_ends_at",
+          "role",
+          "created_at",
+          "plan_info",
+          "quota"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "plan_source": {
+            "type": "string"
+          },
+          "plan_pending": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "plan_ends_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "role": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plan_info": {
+            "$ref": "#/components/schemas/PlanInfo"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/QuotaView"
+          }
+        }
+      },
+      "OrgSummary": {
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "plan",
+          "role",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PagedResponseOfEvidenceRow": {
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PagedResponseOfVerdictRow": {
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VerdictRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PlanDto": {
+        "required": [
+          "key",
+          "name",
+          "monthly_messages",
+          "price_monthly_cents",
+          "currency",
+          "overage",
+          "overage_per_thousand_cents",
+          "all_languages",
+          "custom_rules",
+          "evidence_logging",
+          "evidence_export",
+          "max_evidence_retention_days"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "monthly_messages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "price_monthly_cents": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "overage": {
+            "type": "boolean"
+          },
+          "overage_per_thousand_cents": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "all_languages": {
+            "type": "boolean"
+          },
+          "custom_rules": {
+            "type": "boolean"
+          },
+          "evidence_logging": {
+            "type": "boolean"
+          },
+          "evidence_export": {
+            "type": "boolean"
+          },
+          "max_evidence_retention_days": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PlanInfo": {
+        "required": [
+          "key",
+          "name",
+          "monthly_messages",
+          "price_monthly_cents",
+          "currency",
+          "overage",
+          "overage_per_thousand_cents",
+          "all_languages",
+          "custom_rules",
+          "evidence_logging",
+          "evidence_export",
+          "max_evidence_retention_days",
+          "public"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "monthly_messages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "price_monthly_cents": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "overage": {
+            "type": "boolean"
+          },
+          "overage_per_thousand_cents": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "all_languages": {
+            "type": "boolean"
+          },
+          "custom_rules": {
+            "type": "boolean"
+          },
+          "evidence_logging": {
+            "type": "boolean"
+          },
+          "evidence_export": {
+            "type": "boolean"
+          },
+          "max_evidence_retention_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "public": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProjectDetail": {
+        "required": [
+          "id",
+          "org_id",
+          "name",
+          "platform",
+          "default_language",
+          "evidence_logging_enabled",
+          "evidence_retention_days",
+          "thresholds",
+          "severity_weights",
+          "rules_version",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "default_language": {
+            "type": "string"
+          },
+          "evidence_logging_enabled": {
+            "type": "boolean"
+          },
+          "evidence_retention_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/Thresholds"
+          },
+          "severity_weights": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeverityWeights"
+              }
+            ]
+          },
+          "rules_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectSummary": {
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "default_language",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "default_language": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectTestRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "author": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModerateAuthor"
+              }
+            ]
+          },
+          "thread": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ModerateThreadEntry"
+            }
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModerateChannel"
+              }
+            ]
+          },
+          "thresholds": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              }
+            ]
+          },
+          "severity_weights": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeverityWeights"
+              }
+            ]
+          },
+          "rules": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/UpsertRuleRequest"
+            },
+            "description": "When present, replaces the project's saved allow/block/context rules (send the full list)."
+          }
+        },
+        "description": "Body of POST /api/projects/{projectId}/test. Draft values replace the saved ones for this call only."
+      },
+      "ProjectTestResponse": {
+        "required": [
+          "action",
+          "severity",
+          "verdicts",
+          "raw_verdicts",
+          "target",
+          "score",
+          "degraded",
+          "degraded_reason",
+          "cached",
+          "model",
+          "latency_ms",
+          "language",
+          "channel_type",
+          "local",
+          "reasons",
+          "draft_thresholds",
+          "draft_rules"
+        ],
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "number",
+            "format": "double"
+          },
+          "verdicts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/VerdictProbability"
+            }
+          },
+          "raw_verdicts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/VerdictProbability"
+            }
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TargetResponse"
+              }
+            ]
+          },
+          "score": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScoreView"
+              }
+            ]
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degraded_reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "language": {
+            "type": "string"
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "local": {
+            "$ref": "#/components/schemas/LocalDiagnostics"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "draft_thresholds": {
+            "type": "boolean"
+          },
+          "draft_rules": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QuotaResponse": {
+        "type": "object",
+        "properties": {
+          "used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_ends_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "QuotaStatusResponse": {
+        "type": "object",
+        "properties": {
+          "used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "overage": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QuotaView": {
+        "required": [
+          "used",
+          "limit",
+          "window_ends_at"
+        ],
+        "type": "object",
+        "properties": {
+          "used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_ends_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Rolling 30-UTC-day usage of the organization in model verdicts (decision 2026-09-22): block-rule hits, degraded answers, test keys and replays are not counted."
+      },
+      "RedirectResponse": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "RuleDto": {
+        "required": [
+          "id",
+          "kind",
+          "pattern_or_text",
+          "is_regex",
+          "category",
+          "note",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "pattern_or_text": {
+            "type": "string"
+          },
+          "is_regex": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ScoreView": {
+        "required": [
+          "value",
+          "confidence"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "SeverityWeights": {
+        "type": "object",
+        "properties": {
+          "score_weight": {
+            "type": "number",
+            "description": "Share of the severity taken from the model Score (0..1); the rest comes from verdicts.",
+            "format": "double"
+          },
+          "insult": {
+            "type": "number",
+            "format": "double"
+          },
+          "threat": {
+            "type": "number",
+            "format": "double"
+          },
+          "hate": {
+            "type": "number",
+            "format": "double"
+          },
+          "sexual": {
+            "type": "number",
+            "format": "double"
+          },
+          "spam": {
+            "type": "number",
+            "format": "double"
+          },
+          "trading": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "description": "Weights for SeverityCalculator. Config, not code: the API loads these from\nappsettings (Moderation:Severity) and projects may override them in their thresholds JSON."
+      },
+      "SubscriptionView": {
+        "required": [
+          "id",
+          "status",
+          "product_id",
+          "plan",
+          "current_period_end",
+          "cancel_at_period_end"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "plan": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "current_period_end": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "cancel_at_period_end": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TargetResponse": {
+        "type": "object",
+        "properties": {
+          "choice": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Thresholds": {
+        "type": "object",
+        "properties": {
+          "severity_block": {
+            "type": "number",
+            "description": "Severity (0..3) at or above which the action is Block.",
+            "format": "double"
+          },
+          "flag_below_score_confidence": {
+            "type": "number",
+            "description": "When the model's Score confidence is below this, the action is at least Flag.",
+            "format": "double"
+          },
+          "insult": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          },
+          "threat": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          },
+          "hate": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          },
+          "sexual": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          },
+          "spam": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          },
+          "trading": {
+            "$ref": "#/components/schemas/CategoryThresholds"
+          }
+        },
+        "description": "Project-editable action thresholds. The defaults reproduce the spec's mapping exactly:\nblock if threat.p ≥ 0.85 or severity ≥ 2.5; hide if insult/hate/sexual ≥ 0.80;\nflag if any category ≥ 0.55 or the Score confidence is below 0.5; otherwise allow."
+      },
+      "UpdateMemberRequest": {
+        "required": [
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateOrgRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "default_language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "evidence_logging_enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "evidence_retention_days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "thresholds": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Thresholds"
+              }
+            ]
+          },
+          "severity_weights": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SeverityWeights"
+              }
+            ]
+          },
+          "clear_severity_weights": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Set to true to remove the project severity-weight override."
+          }
+        }
+      },
+      "UpsertRuleRequest": {
+        "required": [
+          "kind",
+          "pattern_or_text",
+          "is_regex",
+          "category",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pattern_or_text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "is_regex": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UsageDayDto": {
+        "required": [
+          "day",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "description": "Model verdicts on one UTC day: the metered counter, the same source as the quota and the Polar usage events."
+      },
+      "UsageResponse": {
+        "required": [
+          "quota",
+          "days"
+        ],
+        "type": "object",
+        "properties": {
+          "quota": {
+            "$ref": "#/components/schemas/QuotaView"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageDayDto"
+            }
+          }
+        }
+      },
+      "VerdictProbability": {
+        "type": "object",
+        "properties": {
+          "p": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "VerdictRow": {
+        "required": [
+          "id",
+          "ts",
+          "message_hash",
+          "author_opaque_id",
+          "verdicts",
+          "severity",
+          "action",
+          "degraded",
+          "degraded_reason",
+          "cached",
+          "model_version",
+          "latency_ms",
+          "tokens_in",
+          "key_kind",
+          "channel_type",
+          "feedback"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_hash": {
+            "type": "string"
+          },
+          "author_opaque_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verdicts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/VerdictProbability"
+            }
+          },
+          "severity": {
+            "type": "number",
+            "format": "double"
+          },
+          "action": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degraded_reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "model_version": {
+            "type": "string"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tokens_in": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "key_kind": {
+            "type": "string"
+          },
+          "channel_type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "feedback": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "WebhookAck": {
+        "required": [
+          "status",
+          "event_id"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "plans"
+    },
+    {
+      "name": "billing"
+    },
+    {
+      "name": "moderation"
+    },
+    {
+      "name": "auth"
+    },
+    {
+      "name": "orgs"
+    },
+    {
+      "name": "projects"
+    }
+  ]
+}

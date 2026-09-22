@@ -1,0 +1,30 @@
+{
+  "name": "com.chatguard.sdk",
+  "version": "0.2.0",
+  "displayName": "Chat Guard",
+  "description": "Real-time chat moderation for Unity games: send each message to the Chat Guard proxy and get typed verdicts, a severity and a recommended action, with a local dictionary fallback when offline.",
+  "unity": "2021.3",
+  "keywords": [
+    "chat",
+    "moderation",
+    "toxicity",
+    "multiplayer"
+  ],
+  "author": {
+    "name": "Kirill Tolmachev pr Beograd",
+    "url": "https://app.chatguard.dev"
+  },
+  "dependencies": {},
+  "samples": [
+    {
+      "displayName": "Basic Chat",
+      "description": "Minimal chat UI with threshold sliders and a verdict log.",
+      "path": "Samples~/BasicChat"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chatguard-dev/chat-guard-unity.git"
+  },
+  "documentationUrl": "https://github.com/chatguard-dev/chat-guard-unity#readme"
+}
