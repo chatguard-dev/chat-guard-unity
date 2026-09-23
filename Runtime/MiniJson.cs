@@ -13,10 +13,22 @@ namespace ChatGuard.Unity
     /// </summary>
     public static class MiniJson
     {
+        /// <summary>
+        /// Deepest nesting of objects and arrays <see cref="Parse"/> reads; the outermost container is level 1. Far
+        /// above any Chat Guard response (the server's is 3 levels deep) and low enough to keep the recursive reader's
+        /// stack use small, so broken or hostile input gets a <see cref="FormatException"/> instead of overflowing the
+        /// stack (a StackOverflowException cannot be caught and would end the game).
+        /// </summary>
+        internal const int MaxDepth = 128;
+
+        /// <summary>
+        /// Reads one JSON value. Throws <see cref="FormatException"/> for text it cannot read: malformed or truncated
+        /// input, trailing characters after the value, and nesting deeper than 128 levels of objects and arrays.
+        /// </summary>
         public static object? Parse(string json)
         {
             var reader = new Reader(json);
-            object? value = reader.ReadValue();
+            object? value = reader.ReadValue(0);
             reader.SkipWhitespace();
             if (!reader.AtEnd)
             {
@@ -180,7 +192,8 @@ namespace ChatGuard.Unity
                 }
             }
 
-            public object? ReadValue()
+            /// <summary>Reads the value at the current position, which is inside <paramref name="depth"/> containers.</summary>
+            public object? ReadValue(int depth)
             {
                 SkipWhitespace();
                 if (AtEnd)
@@ -191,8 +204,8 @@ namespace ChatGuard.Unity
                 char c = _s[_i];
                 switch (c)
                 {
-                    case '{': return ReadObject();
-                    case '[': return ReadArray();
+                    case '{': return ReadObject(depth + 1);
+                    case '[': return ReadArray(depth + 1);
                     case '"': return ReadString();
                     case 't': Expect("true"); return true;
                     case 'f': Expect("false"); return false;
@@ -201,8 +214,18 @@ namespace ChatGuard.Unity
                 }
             }
 
-            private Dictionary<string, object?> ReadObject()
+            /// <summary>Rejects a container deeper than <see cref="MaxDepth"/> before reading into it.</summary>
+            private void CheckDepth(int depth)
             {
+                if (depth > MaxDepth)
+                {
+                    throw new FormatException("Nesting deeper than " + MaxDepth + " levels at " + _i);
+                }
+            }
+
+            private Dictionary<string, object?> ReadObject(int depth)
+            {
+                CheckDepth(depth);
                 var obj = new Dictionary<string, object?>();
                 _i++;
                 SkipWhitespace();
@@ -223,7 +246,7 @@ namespace ChatGuard.Unity
                     }
 
                     _i++;
-                    obj[key] = ReadValue();
+                    obj[key] = ReadValue(depth);
                     SkipWhitespace();
                     if (_i < _s.Length && _s[_i] == ',')
                     {
@@ -241,8 +264,9 @@ namespace ChatGuard.Unity
                 }
             }
 
-            private List<object?> ReadArray()
+            private List<object?> ReadArray(int depth)
             {
+                CheckDepth(depth);
                 var list = new List<object?>();
                 _i++;
                 SkipWhitespace();
@@ -254,7 +278,7 @@ namespace ChatGuard.Unity
 
                 while (true)
                 {
-                    list.Add(ReadValue());
+                    list.Add(ReadValue(depth));
                     SkipWhitespace();
                     if (_i < _s.Length && _s[_i] == ',')
                     {
@@ -274,7 +298,7 @@ namespace ChatGuard.Unity
 
             private string ReadString()
             {
-                if (_s[_i] != '"')
+                if (_i >= _s.Length || _s[_i] != '"')
                 {
                     throw new FormatException("Expected string at " + _i);
                 }
@@ -365,7 +389,7 @@ namespace ChatGuard.Unity
 
             private void Expect(string literal)
             {
-                if (string.CompareOrdinal(_s, _i, literal, 0, literal.Length) != 0)
+                if (_s.Length - _i < literal.Length || string.CompareOrdinal(_s, _i, literal, 0, literal.Length) != 0)
                 {
                     throw new FormatException("Expected " + literal + " at " + _i);
                 }

@@ -4,9 +4,9 @@
 
 Cancellation tokens for `Moderate` and a stricter build check for test keys (first two entries), then performance
 work with no API changes. Normalized text, JSON bodies and results are identical to 0.2.1, checked by differential
-tests on .NET and on Unity 2021.3's Mono; apart from those two entries, the Basic Chat sample fix at the end is the only
-intended behaviour change. Figures are from
-Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
+tests on .NET and on Unity 2021.3's Mono; apart from those two entries, the two fixes at the end are the only
+intended behaviour changes. Figures are for Unity 2021.3's embedded Mono runtime (the one the editor and Mono
+players use); the server round trip figures were measured in a Mono player, and its IL2CPP figure is labelled.
 
 - `Moderate` takes an optional `CancellationToken`: `ChatGuardSdk.Moderate(text, playerId, token)` and
   `ChatGuardSdk.Moderate(text, playerId, onCompleted, token)`, the same two with a `ModerationRequest`, and
@@ -15,7 +15,11 @@ Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
   `OperationCanceledException` carrying the token (after `op.Cancel()` it carries `CancellationToken.None`). A token
   that is already cancelled gives back a cancelled operation without sending a request. The SDK stops listening to the
   token when the operation finishes, so one long-lived token can serve every message, and a token cancelled on
-  another thread takes effect on the main thread. Works with `destroyCancellationToken` (Unity 2022.2+) and UniTask's
+  another thread takes effect on the main thread. A call without a token costs nothing extra; a live token adds about
+  144 B per message (about 304 B when `Moderate` is called from inside an `async` method), because the SDK registers
+  with it without capturing the execution context. `async` methods that await the operation keep their own
+  `AsyncLocal` values as before; only a continuation passed straight to the awaiter's `OnCompleted` now runs in the
+  context of whoever cancelled the token. Works with `destroyCancellationToken` (Unity 2022.2+) and UniTask's
   `GetCancellationTokenOnDestroy()`. 0.2.0 dropped tokens together with `ModerateAsync`; a token needs no thread or
   timer, so the SDK still uses no `System.Threading.Tasks` and tokens work on WebGL (`CancelAfter` is the exception:
   it needs a timer thread; use `TimeoutSeconds` for timeouts).
@@ -43,12 +47,28 @@ Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
     for ASCII text without capital letters, and rebuilding the message token by token when no token needs a
     rewrite and the words are already separated by single spaces with no leading whitespace.
   - Category sorting no longer boxes enum values.
-- Request bodies are written directly instead of through a dictionary tree, which is about 60% less garbage per
-  call for a 60-character message with author, five-entry thread and channel, and about 47% for a
-  500-character one. The request URL and the `Authorization` header are prepared once per client, so
-  `UnityWebRequest` no longer re-parses the URL on every call.
-- The JSON reader returns strings without escape sequences as a single substring and parses numbers in place,
-  which cuts response parsing garbage by about half.
+- A server round trip allocates 92–94% less: about 1.2 KB per message instead of 21.3 KB in 0.2.1 for a
+  60-character message with author and a five-entry thread, and about 1.3 KB instead of 17.4 KB through
+  `ChatGuardSdk.Moderate(text, playerId, onCompleted)`. On IL2CPP (Android, arm64) the round trip is under
+  1.3 KB per message.
+  - The request is written as UTF-8 into a reused buffer and copied into a native array that `UploadHandlerRaw`
+    takes over, with no JSON string or `byte[]` allocated per call.
+  - The response is read from the downloaded bytes by a reader that handles the server's plain JSON and passes
+    anything else to `DownloadHandler.text` and `TryParseResponse`, so results are unchanged.
+  - `BuildRequestJson` and `TryParseResponse` themselves allocate about half of what they did in 0.2.1: request
+    JSON is written directly instead of through a dictionary tree, and the JSON reader returns strings without
+    escape sequences as a single substring and parses numbers in place. A round trip whose response the byte
+    reader passes on (one with an escape sequence, for example) allocates about 8.5 KB instead of 21.3 KB.
+  - There is no per-call closure or `Stopwatch`, and the request URL and the `Authorization` header are prepared
+    once per client.
+  - What remains is `UnityWebRequest`'s own objects (about 0.6 KB per request, which Unity cannot reuse), the
+    operation and the result. A live `CancellationToken` adds about 144 B per message.
+- Truncated or malformed JSON: `TryParseResponse` returns null for every such body, as documented; some truncated
+  ones threw `IndexOutOfRangeException` (`{"action":"hide",` for example). It also returns null for a null string.
+  `MiniJson.Parse` throws `FormatException` for them instead, and rejects nesting deeper than 128 levels with a
+  `FormatException`, so a deeply nested body can no longer overflow the stack, which ends the game. For such a
+  200 response `Moderate` falls back as `OfflineBehavior` says (degraded reason `upstream`) with the error
+  "unparseable response" instead of the exception's message.
 - Basic Chat sample: it now shows its text on Unity 2021.3; it was loading the built-in font name that only
   exists from 2022.2. It also no longer writes the slider values into the `ChatGuardConfig` asset you assign to it.
 

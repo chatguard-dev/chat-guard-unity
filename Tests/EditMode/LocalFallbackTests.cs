@@ -356,6 +356,63 @@ namespace ChatGuard.Tests
         }
 
         [Test]
+        public void Cancel_WithALiveToken_CarriesNoneAndTheTokenChangesNothingAfterwards()
+        {
+            var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
+            using var cts = new CancellationTokenSource();
+            ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"), cts.Token);
+            Assert.That(op.IsDone, Is.False, "a network request must not complete synchronously");
+
+            Exception? error = null;
+            AwaitInto(op, _ => { }, ex => error = ex);
+            op.Cancel();
+            cts.Cancel();
+
+            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.Result, Is.Null);
+            Assert.That(error, Is.TypeOf<OperationCanceledException>());
+            Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(CancellationToken.None), "op.Cancel() ended it, not the token");
+        }
+
+        // Moderate registers with the token while execution-context flow is suppressed, and must leave the flow as it
+        // found it: restored when it suppressed it, still suppressed when the caller had (SuppressFlow would throw then).
+        [Test]
+        public void Token_RegisteredWithOrWithoutSuppressedFlow_CancelsAndLeavesTheFlowAsItWas()
+        {
+            var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
+            using var cts = new CancellationTokenSource();
+            Assert.That(ExecutionContext.IsFlowSuppressed(), Is.False);
+            ModerationOperation plain = client.Moderate(new ModerationRequest("you idiot", "p1"), cts.Token);
+            Assert.That(ExecutionContext.IsFlowSuppressed(), Is.False, "Moderate restores the flow it suppressed");
+
+            ModerationOperation suppressed;
+            AsyncFlowControl flow = ExecutionContext.SuppressFlow();
+            try
+            {
+                suppressed = client.Moderate(new ModerationRequest("you idiot", "p1"), cts.Token);
+                Assert.That(ExecutionContext.IsFlowSuppressed(), Is.True, "the caller's suppression stays in place");
+            }
+            finally
+            {
+                flow.Undo();
+            }
+
+            Assert.That(plain.IsDone || suppressed.IsDone, Is.False, "network requests must not complete synchronously");
+            var errors = new Exception?[2];
+            AwaitInto(plain, _ => { }, ex => errors[0] = ex);
+            AwaitInto(suppressed, _ => { }, ex => errors[1] = ex);
+            cts.Cancel();
+
+            Assert.That(plain.IsCancelled, Is.True);
+            Assert.That(suppressed.IsCancelled, Is.True);
+            foreach (Exception? error in errors)
+            {
+                Assert.That(error, Is.TypeOf<OperationCanceledException>());
+                Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(cts.Token));
+            }
+        }
+
+        [Test]
         public void Token_CancelledAfterCompletion_ChangesNothing()
         {
             var client = new ChatGuardClient(string.Empty, string.Empty);

@@ -3,13 +3,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Text;
 using System.Threading;
 using ChatGuard.Core;
 using ChatGuard.Core.Filtering;
 using ChatGuard.Core.Scoring;
 using ChatGuard.Core.Text;
+using Unity.Collections;
 using UnityEngine.Networking;
 
 namespace ChatGuard.Unity
@@ -211,17 +211,18 @@ namespace ChatGuard.Unity
                 return operation; // the token was cancelled on another thread just before it was registered
             }
 
-            UnityWebRequest? uwr = null;
+            ModerationWebRequest? uwr = null;
             try
             {
-                var sw = Stopwatch.StartNew();
-                byte[] body = Encoding.UTF8.GetBytes(BuildRequestJson(request));
+                long startTimestamp = Stopwatch.GetTimestamp();
+                Utf8RequestJsonSink body = WriteRequestUtf8(request);
                 // The Uri overload skips UnityWebRequest's per-call URL re-parsing (two Uri objects and a regex) and
                 // yields the same url. _moderateUri is null for base URLs without an http(s) scheme and for URLs
                 // System.Uri rejects; those use the string overload, so they behave and fail exactly as
                 // UnityWebRequest(string) does.
-                uwr = _moderateUri != null ? new UnityWebRequest(_moderateUri, UnityWebRequest.kHttpVerbPOST) : new UnityWebRequest(_moderateUrl, UnityWebRequest.kHttpVerbPOST);
-                uwr.uploadHandler = new UploadHandlerRaw(body);
+                uwr = _moderateUri != null ? new ModerationWebRequest(_moderateUri, this, operation, startTimestamp) : new ModerationWebRequest(_moderateUrl, this, operation, startTimestamp);
+                uwr.uploadHandler = CreateUploadHandler(body.Buffer, body.Length);
+                body.Release(); // the bytes are in native memory now; the buffer serves this thread's next request
                 uwr.downloadHandler = new DownloadHandlerBuffer();
                 uwr.timeout = _timeoutSeconds;
                 uwr.SetRequestHeader("Content-Type", "application/json");
@@ -229,9 +230,8 @@ namespace ChatGuard.Unity
                 uwr.SetRequestHeader("Authorization", _authorizationHeader);
                 operation.Attach(uwr);
 
-                UnityWebRequest sent = uwr;
                 // `completed` invokes immediately when the web request has already finished, so there is no race here.
-                uwr.SendWebRequest().completed += _ => Finish(operation, sent, sw);
+                uwr.SendWebRequest().completed += ModerationWebRequest.CompletedHandler;
             }
             catch (Exception ex)
             {
@@ -261,9 +261,32 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>Runs on the main thread when the UnityWebRequest finishes, including after an abort from Cancel().</summary>
-        private void Finish(ModerationOperation operation, UnityWebRequest uwr, Stopwatch sw)
+        /// <summary>
+        /// Copies the request body into a new native array and hands it to an <see cref="UploadHandlerRaw"/> that owns it
+        /// (<c>transferOwnership</c>), so it is freed when the request is disposed, which is what
+        /// <c>UploadHandlerRaw(byte[])</c> does internally; the managed copy that overload needs is skipped. The array is
+        /// disposed here if the copy fails; from the handler's constructor on, the handler owns it.
+        /// </summary>
+        private static UploadHandlerRaw CreateUploadHandler(byte[] buffer, int length)
         {
+            var data = new NativeArray<byte>(length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            try
+            {
+                NativeArray<byte>.Copy(buffer, 0, data, 0, length);
+            }
+            catch
+            {
+                data.Dispose();
+                throw;
+            }
+
+            return new UploadHandlerRaw(data, true);
+        }
+
+        /// <summary>Runs on the main thread when the UnityWebRequest finishes, including after an abort from Cancel().</summary>
+        private void Finish(ModerationWebRequest uwr)
+        {
+            ModerationOperation operation = uwr.Operation;
             try
             {
                 if (operation.IsDone)
@@ -274,7 +297,7 @@ namespace ChatGuard.Unity
                 ModerationResult result;
                 try
                 {
-                    result = Interpret(uwr, operation.Request, sw);
+                    result = Interpret(uwr, operation.Request, uwr.StartTimestamp);
                 }
                 catch (Exception ex)
                 {
@@ -289,7 +312,7 @@ namespace ChatGuard.Unity
             }
         }
 
-        private ModerationResult Interpret(UnityWebRequest uwr, ModerationRequest request, Stopwatch sw)
+        private ModerationResult Interpret(UnityWebRequest uwr, ModerationRequest request, long startTimestamp)
         {
 #if UNITY_2020_2_OR_NEWER
             bool transportError = uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.DataProcessingError;
@@ -307,7 +330,10 @@ namespace ChatGuard.Unity
                 return Fallback(request, reason, "HTTP " + uwr.responseCode + ": " + Truncate(uwr.downloadHandler.text));
             }
 
-            ModerationResult? parsed = TryParseResponse(uwr.downloadHandler.text, (int)sw.ElapsedMilliseconds);
+            // The server's usual body is read straight from the response bytes. Whatever that reader does not handle is
+            // parsed from DownloadHandler.text, so every body gets TryParseResponse's result (null for malformed or
+            // truncated JSON, reported as an unparseable response).
+            ModerationResult? parsed = TryReadPlainResponse(uwr, startTimestamp) ?? TryParseResponse(uwr.downloadHandler.text, ElapsedMilliseconds(startTimestamp));
             if (parsed == null)
             {
                 return Fallback(request, DegradedReason.Upstream, "unparseable response");
@@ -321,101 +347,177 @@ namespace ChatGuard.Unity
             return parsed;
         }
 
+        /// <summary>
+        /// Reads a 200 body from <c>DownloadHandler.nativeData</c> with <see cref="ModerationResponseReader"/>, without
+        /// creating the body string. Null when the reader does not handle the body, when the Content-Type names a charset
+        /// other than UTF-8 (<c>DownloadHandler.text</c> would decode with it), and when anything throws; the caller then
+        /// takes the <c>DownloadHandler.text</c> path, which reads the same data and gives
+        /// <see cref="TryParseResponse"/>'s answer.
+        /// </summary>
+        private static ModerationResult? TryReadPlainResponse(UnityWebRequest uwr, long startTimestamp)
+        {
+            try
+            {
+                if (!ModerationResponseReader.IsUtf8ContentType(uwr.GetResponseHeader("Content-Type")))
+                {
+                    return null;
+                }
+
+                NativeArray<byte>.ReadOnly body = uwr.downloadHandler.nativeData;
+                return ModerationResponseReader.TryRead(body, ElapsedMilliseconds(startTimestamp));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Whole milliseconds since <paramref name="startTimestamp"/>, as Stopwatch.ElapsedMilliseconds computes them.</summary>
+        private static int ElapsedMilliseconds(long startTimestamp)
+        {
+            return (int)((Stopwatch.GetTimestamp() - startTimestamp) * 1000 / Stopwatch.Frequency);
+        }
+
         /// <summary>Serializes the request; only set fields are written (the API rejects negative counts).</summary>
         public string BuildRequestJson(ModerationRequest request)
+        {
+            var sink = new StringRequestJsonSink(new StringBuilder(EstimateRequestJsonLength(request)));
+            WriteRequestJson(ref sink, request);
+            return sink.Builder.ToString();
+        }
+
+        /// <summary>
+        /// The body <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> uploads:
+        /// exactly the bytes of <c>Encoding.UTF8.GetBytes(BuildRequestJson(request))</c>, written into this thread's
+        /// reusable buffer without creating the string. Read <see cref="Utf8RequestJsonSink.Buffer"/> up to
+        /// <see cref="Utf8RequestJsonSink.Length"/>, then call <see cref="Utf8RequestJsonSink.Release"/>. Throws what
+        /// <see cref="BuildRequestJson"/> throws for the same request.
+        /// </summary>
+        internal Utf8RequestJsonSink WriteRequestUtf8(ModerationRequest request)
+        {
+            Utf8RequestJsonSink sink = Utf8RequestJsonSink.Rent();
+            WriteRequestJson(ref sink, request);
+            return sink;
+        }
+
+        /// <summary>
+        /// The one definition of the request body, written to <paramref name="sink"/>: a string for
+        /// <see cref="BuildRequestJson"/>, UTF-8 bytes for
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/>, so the two cannot
+        /// drift apart.
+        /// </summary>
+        private void WriteRequestJson<TSink>(ref TSink sink, ModerationRequest request)
+            where TSink : struct, IRequestJsonSink
         {
             // Written directly rather than by building a Dictionary tree for MiniJson.Write (the serializer up to 0.2.1).
             // The output must stay byte-identical to that tree's: same keys, order and omission rules, strings escaped by
             // MiniJson.WriteString, counts as invariant integers written only when >= 0. The RequestJson_*_ExactString
-            // tests in ClientJsonTests pin this. A null thread entry inside the last-5 window throws
-            // NullReferenceException when its author is read
-            // (RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows).
+            // tests in ClientJsonTests pin this, and RequestBytesTests pins the UTF-8 sink to Encoding.UTF8.GetBytes of
+            // the string. A null thread entry inside the last-5 window throws NullReferenceException when its author is
+            // read (RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows), before Moderate creates any
+            // UnityWebRequest.
             List<ThreadEntry>? thread = request.thread;
             int threadStart = thread != null ? Math.Max(0, thread.Count - 5) : 0;
-            string channelType = string.IsNullOrEmpty(request.channelType) ? _settings.ChannelType : request.channelType!;
-            string language = string.IsNullOrEmpty(request.language) ? _settings.DefaultLanguage : request.language!;
-            string? ageRating = string.IsNullOrEmpty(request.ageRating) ? _settings.AgeRating : request.ageRating;
-            var sb = new StringBuilder(EstimateRequestJsonLength(request, thread, threadStart, channelType, language, ageRating));
-            sb.Append("{\"message\":");
-            MiniJson.WriteString(sb, request.message ?? string.Empty);
+            string channelType = ChannelTypeFor(request);
+            string language = LanguageFor(request);
+            string? ageRating = AgeRatingFor(request);
+            sink.WriteLiteral("{\"message\":");
+            sink.WriteString(request.message ?? string.Empty);
             if (!string.IsNullOrEmpty(request.authorId) || request.accountAgeDays >= 0 || request.priorWarnings >= 0)
             {
-                sb.Append(",\"author\":{");
+                sink.WriteLiteral(",\"author\":{");
                 bool first = true;
                 if (!string.IsNullOrEmpty(request.authorId))
                 {
-                    sb.Append("\"id\":");
-                    MiniJson.WriteString(sb, request.authorId!);
+                    sink.WriteLiteral("\"id\":");
+                    sink.WriteString(request.authorId!);
                     first = false;
                 }
 
                 if (request.accountAgeDays >= 0)
                 {
-                    sb.Append(first ? "\"account_age_days\":" : ",\"account_age_days\":");
-                    sb.Append(request.accountAgeDays.ToString(CultureInfo.InvariantCulture));
+                    sink.WriteLiteral(first ? "\"account_age_days\":" : ",\"account_age_days\":");
+                    sink.WriteNonNegativeInt(request.accountAgeDays);
                     first = false;
                 }
 
                 if (request.priorWarnings >= 0)
                 {
-                    sb.Append(first ? "\"prior_warnings\":" : ",\"prior_warnings\":");
-                    sb.Append(request.priorWarnings.ToString(CultureInfo.InvariantCulture));
+                    sink.WriteLiteral(first ? "\"prior_warnings\":" : ",\"prior_warnings\":");
+                    sink.WriteNonNegativeInt(request.priorWarnings);
                 }
 
-                sb.Append('}');
+                sink.WriteLiteral("}");
             }
 
             if (thread != null && thread.Count > 0)
             {
-                sb.Append(",\"thread\":[");
+                sink.WriteLiteral(",\"thread\":[");
                 for (int i = threadStart; i < thread.Count; i++)
                 {
                     ThreadEntry entry = thread[i];
-                    sb.Append(i == threadStart ? "{\"author\":" : ",{\"author\":");
-                    MiniJson.WriteString(sb, entry.author ?? "unknown");
-                    sb.Append(",\"text\":");
-                    MiniJson.WriteString(sb, entry.text ?? string.Empty);
-                    sb.Append('}');
+                    sink.WriteLiteral(i == threadStart ? "{\"author\":" : ",{\"author\":");
+                    sink.WriteString(entry.author ?? "unknown");
+                    sink.WriteLiteral(",\"text\":");
+                    sink.WriteString(entry.text ?? string.Empty);
+                    sink.WriteLiteral("}");
                 }
 
-                sb.Append(']');
+                sink.WriteLiteral("]");
             }
 
             if (!string.IsNullOrEmpty(channelType) || !string.IsNullOrEmpty(language) || !string.IsNullOrEmpty(ageRating))
             {
-                sb.Append(",\"channel\":{");
+                sink.WriteLiteral(",\"channel\":{");
                 bool first = true;
                 if (!string.IsNullOrEmpty(channelType))
                 {
-                    sb.Append("\"type\":");
-                    MiniJson.WriteString(sb, channelType);
+                    sink.WriteLiteral("\"type\":");
+                    sink.WriteString(channelType);
                     first = false;
                 }
 
                 if (!string.IsNullOrEmpty(language))
                 {
-                    sb.Append(first ? "\"language\":" : ",\"language\":");
-                    MiniJson.WriteString(sb, language);
+                    sink.WriteLiteral(first ? "\"language\":" : ",\"language\":");
+                    sink.WriteString(language);
                     first = false;
                 }
 
                 if (!string.IsNullOrEmpty(ageRating))
                 {
-                    sb.Append(first ? "\"age_rating\":" : ",\"age_rating\":");
-                    MiniJson.WriteString(sb, ageRating!);
+                    sink.WriteLiteral(first ? "\"age_rating\":" : ",\"age_rating\":");
+                    sink.WriteString(ageRating!);
                 }
 
-                sb.Append('}');
+                sink.WriteLiteral("}");
             }
 
             if (!string.IsNullOrEmpty(request.requestId))
             {
-                sb.Append(",\"request_id\":");
-                MiniJson.WriteString(sb, request.requestId!);
+                sink.WriteLiteral(",\"request_id\":");
+                sink.WriteString(request.requestId!);
             }
 
-            sb.Append('}');
-            return sb.ToString();
+            sink.WriteLiteral("}");
+        }
+
+        /// <summary>The channel type a request is sent with: its own, or the client default when empty.</summary>
+        private string ChannelTypeFor(ModerationRequest request)
+        {
+            return string.IsNullOrEmpty(request.channelType) ? _settings.ChannelType : request.channelType!;
+        }
+
+        /// <summary>The language a request is sent with: its own, or the client default when empty.</summary>
+        private string LanguageFor(ModerationRequest request)
+        {
+            return string.IsNullOrEmpty(request.language) ? _settings.DefaultLanguage : request.language!;
+        }
+
+        /// <summary>The age rating a request is sent with: its own, or the client default (possibly null) when empty.</summary>
+        private string? AgeRatingFor(ModerationRequest request)
+        {
+            return string.IsNullOrEmpty(request.ageRating) ? _settings.AgeRating : request.ageRating;
         }
 
         /// <summary>
@@ -425,10 +527,12 @@ namespace ChatGuard.Unity
         /// Only a hint (escapes can make the JSON longer), so it is computed in long, never throws, reads only the last-5
         /// window and is capped at 64K chars.
         /// </summary>
-        private static int EstimateRequestJsonLength(ModerationRequest request, List<ThreadEntry>? thread, int threadStart, string? channelType, string? language, string? ageRating)
+        private int EstimateRequestJsonLength(ModerationRequest request)
         {
+            List<ThreadEntry>? thread = request.thread;
+            int threadStart = thread != null ? Math.Max(0, thread.Count - 5) : 0;
             long estimate = 128L + (request.message?.Length ?? 0) + (request.authorId?.Length ?? 0) + (request.requestId?.Length ?? 0)
-                + (channelType?.Length ?? 0) + (language?.Length ?? 0) + (ageRating?.Length ?? 0);
+                + ChannelTypeFor(request).Length + LanguageFor(request).Length + (AgeRatingFor(request)?.Length ?? 0);
             if (request.accountAgeDays >= 0 || request.priorWarnings >= 0)
             {
                 estimate += 48;
@@ -446,9 +550,17 @@ namespace ChatGuard.Unity
             return (int)Math.Min(estimate, 65536L);
         }
 
-        /// <summary>Parses a /v1/moderate response body. Returns null when the shape is not recognised.</summary>
-        public static ModerationResult? TryParseResponse(string json, int latencyMs)
+        /// <summary>
+        /// Parses a /v1/moderate response body. Returns null when <paramref name="json"/> is null or is not a
+        /// recognised response; never throws for malformed or truncated JSON.
+        /// </summary>
+        public static ModerationResult? TryParseResponse(string? json, int latencyMs)
         {
+            if (json == null)
+            {
+                return null;
+            }
+
             Dictionary<string, object?>? root;
             try
             {
@@ -537,6 +649,52 @@ namespace ChatGuard.Unity
             }
 
             return text!.Length > 200 ? text.Substring(0, 200) : text;
+        }
+
+        /// <summary>
+        /// The UnityWebRequest of one
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> call. It carries the
+        /// call's state (client, operation, start timestamp), so a single static completion handler serves every request
+        /// and no closure, delegate or Stopwatch is created per call.
+        /// </summary>
+        private sealed class ModerationWebRequest : UnityWebRequest
+        {
+            /// <summary>
+            /// The completion handler of every request, created once. It lives here rather than on ChatGuardClient, which
+            /// has no type initializer on purpose (see <see cref="Filter"/>).
+            /// </summary>
+            internal static readonly Action<UnityEngine.AsyncOperation> CompletedHandler = OnCompleted;
+
+            internal ModerationWebRequest(Uri uri, ChatGuardClient client, ModerationOperation operation, long startTimestamp)
+                : base(uri, kHttpVerbPOST)
+            {
+                Client = client;
+                Operation = operation;
+                StartTimestamp = startTimestamp;
+            }
+
+            internal ModerationWebRequest(string url, ChatGuardClient client, ModerationOperation operation, long startTimestamp)
+                : base(url, kHttpVerbPOST)
+            {
+                Client = client;
+                Operation = operation;
+                StartTimestamp = startTimestamp;
+            }
+
+            /// <summary>The client whose <see cref="Finish"/> interprets the response.</summary>
+            internal ChatGuardClient Client { get; }
+
+            internal ModerationOperation Operation { get; }
+
+            /// <summary><see cref="Stopwatch.GetTimestamp"/> taken when the call started; the result's latency counts from it.</summary>
+            internal long StartTimestamp { get; }
+
+            /// <summary>Runs on the main thread when the request finishes, including after an abort from Cancel().</summary>
+            private static void OnCompleted(UnityEngine.AsyncOperation asyncOperation)
+            {
+                var request = (ModerationWebRequest)((UnityWebRequestAsyncOperation)asyncOperation).webRequest;
+                request.Client.Finish(request);
+            }
         }
     }
 }

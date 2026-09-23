@@ -45,6 +45,38 @@ namespace ChatGuard.Tests
         }
 
         [Test]
+        public void TryParseResponse_Null_ReturnsNull()
+        {
+            Assert.That(ChatGuardClient.TryParseResponse(null, 0), Is.Null);
+        }
+
+        /// <summary>A body cut off anywhere (a dropped connection, a proxy limit) is unparseable, never an exception.</summary>
+        [Test]
+        public void TryParseResponse_EveryTruncation_ReturnsNull()
+        {
+            Assert.That(ChatGuardClient.TryParseResponse("{\"action\":\"hide\",", 0), Is.Null, "used to throw IndexOutOfRangeException");
+            for (int i = 0; i < SampleResponse.Length; i++)
+            {
+                string prefix = SampleResponse.Substring(0, i);
+                ModerationResult? result = null;
+                Assert.DoesNotThrow(() => result = ChatGuardClient.TryParseResponse(prefix, 0), prefix);
+                Assert.That(result, Is.Null, prefix);
+            }
+        }
+
+        [Test]
+        public void TryParseResponse_Nesting_UpToTheLimitIsRead_DeeperIsUnparseable()
+        {
+            // The root object is level 1, so MaxDepth - 1 arrays under it reach the limit.
+            string deepest = SampleResponse.Replace("\"latency_ms\":212", "\"deep\":" + new string('[', MiniJson.MaxDepth - 1) + new string(']', MiniJson.MaxDepth - 1));
+            Assert.That(ChatGuardClient.TryParseResponse(deepest, 0)!.Action, Is.EqualTo(ModerationAction.Hide));
+            string tooDeep = SampleResponse.Replace("\"latency_ms\":212", "\"deep\":" + new string('[', MiniJson.MaxDepth) + new string(']', MiniJson.MaxDepth));
+            Assert.That(ChatGuardClient.TryParseResponse(tooDeep, 0), Is.Null);
+            string huge = SampleResponse.Replace("\"latency_ms\":212", "\"deep\":" + new string('[', 100000) + new string(']', 100000));
+            Assert.That(ChatGuardClient.TryParseResponse(huge, 0), Is.Null);
+        }
+
+        [Test]
         public void RequestJson_OmitsUnsetOptionalFields()
         {
             var client = new ChatGuardClient("cg_test_x", "https://api.example.com", language: "de", channelType: "team", ageRating: "16+");
