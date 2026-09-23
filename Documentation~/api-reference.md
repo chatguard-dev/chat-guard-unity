@@ -21,6 +21,24 @@ readable description is `openapi.json` next to this file (also served at `https:
   signed in. An unknown, expired or revoked cookie (each one works once; sign-out revokes it too)
   returns `401` and is cleared. Treat `204` and `401` alike as signed out.
 
+### Browser clients (CORS)
+
+`POST /v1/moderate` and `GET /v1/quota` accept calls from a web page on any origin, which is how a
+Unity WebGL build reaches the API. Because the request sends `Authorization` and
+`Content-Type: application/json`, the browser first sends an `OPTIONS` preflight. The answer allows
+any origin (`Access-Control-Allow-Origin: *`, no credentials) and may be cached for 2 hours
+(`Access-Control-Max-Age: 7200`; Chrome and Firefox keep it that long, Safari at most 10 minutes).
+So per page origin and endpoint, only the first request in each window pays the extra round trip.
+Every response carries the CORS headers, errors (`401`, `403`, `429`) included, and scripts can
+read `Retry-After`.
+
+- Only publishable keys work from a browser. A server or test key on a request that carries an
+  `Origin` header is refused with `403`, because anyone can read a key from a web page.
+- The other `/v1` endpoints (`/v1/feedback`, `/v1/evidence`) do not allow browser origins. Call
+  them from your server.
+- A relay calls the API server-to-server. If it forwards requests as a reverse proxy, it must not
+  pass the browser's `Origin` header on, or its server key is refused.
+
 ## POST /v1/moderate
 
 Request (only `message` is required):
@@ -80,7 +98,8 @@ Response:
   `request_id` replays and rejected requests; see "What counts toward the quota" below. For test
   keys `quota` shows the daily cap instead.
 
-Errors: `400` validation problem (`errors` map), `401` invalid key, `429` per-key rate limit or
+Errors: `400` validation problem (`errors` map), `401` invalid key, `403` server or test key sent
+from a browser (see [Browser clients](#browser-clients-cors)), `429` per-key rate limit or
 test-key cap (`Retry-After` header and `retry_after` seconds), `5xx` unexpected.
 
 ## GET /v1/quota
@@ -113,10 +132,16 @@ answers both report `local-filter/<word-list version>` (only the latter sets `de
 (`request_id` may be given instead of `verdict_id`). Returns `201 { "id", "verdict_id" }`. Verdicts
 are persisted asynchronously; a `404` shortly after moderation means "retry in a moment".
 
-## DELETE /v1/evidence/{projectId}/{authorOpaqueId}
+## DELETE /v1/evidence/{projectId}?author_opaque_id=…
 
-GDPR erasure. The key must belong to `projectId`. Returns
-`{ "evidence_deleted": 3, "verdicts_anonymized": 12 }`.
+GDPR erasure: hard-deletes the player's evidence rows and removes the id from verdict rows. The key
+must belong to `projectId`. The id is matched exactly and URL-encoded like any query value
+(`?author_opaque_id=steam%2F123` for `steam/123`). Returns
+`{ "evidence_deleted": 3, "verdicts_anonymized": 12 }`, or `400` without `author_opaque_id`.
+
+The path form `DELETE /v1/evidence/{projectId}/{authorOpaqueId}` still works for ids without `/`.
+**Ids containing `/` must use the query form:** an encoded slash is not decoded in a path segment, so
+`…/steam%2F123` looks for the literal id `steam%2F123` and erases nothing.
 
 ## Health
 
@@ -151,7 +176,7 @@ All under `/api`, JWT required, JSON:
 | `GET/POST /api/projects/{id}/keys`, `DELETE …/keys/{kid}` | API keys |
 | `GET/POST /api/projects/{id}/rules`, `PATCH/DELETE …/rules/{rid}` | allow/block/context rules |
 | `GET /api/projects/{id}/usage`, `…/verdicts`, `…/evidence`, `…/evidence/export`, `…/feedback` | logs and usage |
-| `DELETE /api/projects/{id}/evidence/authors/{author}` | erasure from the dashboard |
+| `DELETE /api/projects/{id}/evidence/authors?author_opaque_id=…` | erasure from the dashboard (owners and admins); the path form `…/evidence/authors/{author}` still works for ids without `/` |
 | `GET /api/projects/{id}/authors/export?author_opaque_id=…` | everything the project stores for one player (verdicts and evidence) as JSON, for access requests; owners and admins, every plan |
 | `POST /api/projects/{id}/test` | dashboard test panel: runs the pipeline with optional draft thresholds, weights and rules; not metered or logged; returns raw and adjusted verdicts plus the reasons for the action |
 | `GET /api/orgs/{id}/billing`, `POST …/billing/checkout`, `…/change`, `…/cancel`, `…/portal` | Polar billing |

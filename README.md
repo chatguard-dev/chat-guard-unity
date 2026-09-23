@@ -32,7 +32,8 @@ key that reaches a player at runtime logs a warning. Three options, in order of 
   a modified client can ignore or skip them, and anyone can extract the key and send their own
   messages; a server or relay should still moderate when one exists. `ChatGuardClient` logs a
   warning once if a `cg_live_` key is found in a player build.
-- **Editor and tests**: use a `cg_test_` key (not metered, 1,000 requests/day).
+- **Editor and tests**: use a `cg_test_` key (not metered, 1,000 requests/day). A WebGL build
+  running in a browser needs a `cg_pub_` key, even for testing (see [WebGL builds](#webgl-builds)).
 
 The `ChatGuardConfig` asset has an empty key and an empty base URL by default (local filter only
 until both are filled in). Never commit a config asset that contains a live key; publishable and
@@ -41,7 +42,8 @@ test keys are safe to commit only if you accept that they are public.
 ## 5-minute integration
 
 1. Create a config: **Assets → Create → Chat Guard → Config**. Set `baseUrl` and the key (a
-   `cg_pub_` or `cg_test_` key in client builds; `cg_live_` only on the server). Pick
+   `cg_pub_` or `cg_test_` key in client builds, only `cg_pub_` in WebGL; `cg_live_` only on the
+   server). Pick
    `offlineBehavior` (`LocalFilter` is the default). No asset at all is fine too, see
    [Configure from code](#configure-from-code-no-asset-needed).
 2. Save it as **`Assets/Resources/ChatGuardConfig.asset`** so the static API finds it by itself, then
@@ -234,6 +236,27 @@ result as advisory (a modified client can skip it).
 
 Each `Moderate` above is your own helper around `ChatGuardClient.Moderate` (or `ChatGuardSdk.Moderate`),
 for example `ChatGuardSdk.Moderate(text, playerId, r => { if (r.ShouldDeliver) deliver(text); })`.
+
+## WebGL builds
+
+A WebGL build calls the API from a web page, so the browser's CORS rules apply. The API allows
+`POST /v1/moderate` and `GET /v1/quota` from any origin, so there is nothing to set up, but two
+things differ from other platforms:
+
+- **A `cg_pub_` key is required.** Anyone can read the key out of a web build. When a request
+  comes from a browser, the API refuses server (`cg_live_`) and test (`cg_test_`) keys with HTTP 403.
+  The client then answers locally with `DegradedReason.Upstream`, and `Error` explains why. The same
+  applies to Build and Run for local testing. Play mode in the Editor is not a browser, so a
+  `cg_test_` key still works there.
+- **The first message in each 2 h window pays one extra round trip.** The `Authorization` and
+  `Content-Type: application/json` headers make the browser send an `OPTIONS` preflight before the
+  first `POST`. The browser caches the answer for 2 hours in Chrome, Edge and Firefox, and for
+  10 minutes in Safari. Until the cache expires, messages go straight through. If your players are
+  far from the API, leave room for the extra round trip in `timeoutSeconds`.
+
+A same-origin relay (`Examples~/server-relay` served from your game's domain) avoids the preflight
+and keeps a `cg_live_` key off the page. It is the better fit when you already run a backend for the
+web build.
 
 ## Why there are no Tasks
 
