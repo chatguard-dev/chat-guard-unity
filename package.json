@@ -1,6 +1,6 @@
 {
   "name": "com.chatguard.sdk",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "displayName": "Chat Guard",
   "description": "Real-time chat moderation for Unity games. Each message is checked in about 300 ms, before other players see it, and your game gets an action (allow, flag, hide or block) with calibrated scores. Tune thresholds and rules live from the dashboard. Setup is one line with your API key.",
   "unity": "2021.3",

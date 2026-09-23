@@ -28,6 +28,7 @@ namespace ChatGuard.Tests
     {
         private const string Sample = "{\"id\":\"0199b2c4-7d1e-7a3b-9c4d-5e6f7a8b9c0d\",\"action\":\"hide\",\"severity\":1.815,\"verdicts\":{\"insult\":{\"p\":0.91},\"threat\":{\"p\":0.03},\"hate\":{\"p\":0.05},\"sexual\":{\"p\":0.01},\"spam\":{\"p\":0.02},\"trading\":{\"p\":0.0}},\"target\":{\"choice\":\"other_user\",\"confidence\":0.84},\"degraded\":false,\"degraded_reason\":null,\"cached\":false,\"quota\":{\"used\":12345,\"limit\":50000,\"window_ends_at\":\"2026-09-23T00:00:00+00:00\"},\"model\":\"jev-1.13.0\",\"latency_ms\":212}";
         private const string Json = "application/json; charset=utf-8";
+        private const string Suspended = "{\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.4\",\"title\":\"Organization suspended\",\"status\":403,\"detail\":\"This organization is suspended, so its API keys are refused. Contact support@chatguard.dev.\",\"code\":\"org_suspended\",\"traceId\":\"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01\"}";
         private static readonly string TestKey = "cg_test_" + new string('x', 32);
 
         /// <summary>Canned answers by route name (the first path segment): status, Content-Type (null: none) and body.</summary>
@@ -48,6 +49,8 @@ namespace ChatGuard.Tests
             ["garbage"] = (200, Json, Utf8("not json")),
             ["r429"] = (429, "text/plain", Utf8("rate limited")),
             ["r500"] = (500, Json, Utf8("{\"error\":\"boom\"}")),
+            ["r403"] = (403, "application/problem+json", Utf8(Suspended)),
+            ["hook"] = (200, Json, Utf8(Sample)),
         };
 
         private readonly object _gate = new object();
@@ -157,7 +160,11 @@ namespace ChatGuard.Tests
             string text = body.Length == 0 ? string.Empty : encoding.GetString(body);
             if (status != 200)
             {
-                return LocalFallback(request, status == 429 ? DegradedReason.UpstreamRateLimit : DegradedReason.Upstream, "HTTP " + status + ": " + (text.Length > 200 ? text.Substring(0, 200) : text));
+                // A problem description is given as plain text and whole; any other body is quoted up to 200 characters.
+                string error = text == Suspended
+                    ? "HTTP 403: Organization suspended. This organization is suspended, so its API keys are refused. Contact support@chatguard.dev. (code: org_suspended)"
+                    : "HTTP " + status + ": " + (text.Length > 200 ? text.Substring(0, 200) : text);
+                return LocalFallback(request, status == 429 ? DegradedReason.UpstreamRateLimit : DegradedReason.Upstream, error);
             }
 
             return ChatGuardClient.TryParseResponse(text, 0) ?? LocalFallback(request, DegradedReason.Upstream, "unparseable response");
@@ -323,6 +330,85 @@ namespace ChatGuard.Tests
             }
 
             Assert.That(merged.Verdicts.Insult, Is.EqualTo(1), "the local filter flags \"idiot\"");
+        }
+
+        /// <summary>
+        /// The Hook's Moderate(message) sends PlayerId as author.id, and without one the per-installation id it keeps in
+        /// PlayerPrefs (this is not a Dedicated Server build). The PlayerPrefs value is put back afterwards.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Hook_SendsThePlayerId_OrTheInstallId()
+        {
+            string? saved = PlayerPrefs.HasKey(ChatGuardUnityHook.InstallIdKey) ? PlayerPrefs.GetString(ChatGuardUnityHook.InstallIdKey) : null;
+            var config = ScriptableObject.CreateInstance<ChatGuardConfig>();
+            config.apiKey = TestKey;
+            config.baseUrl = _baseUrl + "/hook";
+            config.timeoutSeconds = 5f;
+            var host = new GameObject("Chat Guard Hook");
+            host.SetActive(false);
+            ChatGuardUnityHook hook = host.AddComponent<ChatGuardUnityHook>();
+            hook.config = config;
+            hook.configureStaticApi = false;
+            host.SetActive(true);
+            var results = new List<ModerationResult>();
+            hook.onModerated.AddListener(results.Add);
+            try
+            {
+                hook.SetPlayerId("player-42");
+                hook.Moderate("hello there");
+                yield return WaitForCount(results, 1);
+                if (results[0].Error != null && results[0].Error!.IndexOf("Insecure connection", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Assert.Ignore("This Unity version blocks plain HTTP to the local test server: " + results[0].Error);
+                }
+
+                Assert.That(results[0].Source, Is.EqualTo(ResultSource.Server), results[0].Error);
+                Assert.That(ReceivedAuthorId("hook"), Is.EqualTo("player-42"));
+
+                hook.PlayerId = null;
+                hook.Moderate("hello again");
+                yield return WaitForCount(results, 2);
+                string installId = PlayerPrefs.GetString(ChatGuardUnityHook.InstallIdKey);
+                Assert.That(installId, Does.Match("^[0-9a-f]{32}$"));
+                Assert.That(ReceivedAuthorId("hook"), Is.EqualTo(installId));
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(host);
+                UnityEngine.Object.Destroy(config);
+                if (saved != null)
+                {
+                    PlayerPrefs.SetString(ChatGuardUnityHook.InstallIdKey, saved);
+                }
+                else
+                {
+                    PlayerPrefs.DeleteKey(ChatGuardUnityHook.InstallIdKey);
+                }
+            }
+        }
+
+        private static IEnumerator WaitForCount(List<ModerationResult> results, int count)
+        {
+            float deadline = Time.realtimeSinceStartup + 10f;
+            while (results.Count < count && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            Assert.That(results.Count, Is.EqualTo(count), "the Hook did not report a result within 10 s");
+        }
+
+        /// <summary>author.id of the last body the route received.</summary>
+        private string? ReceivedAuthorId(string route)
+        {
+            byte[] body;
+            lock (_gate)
+            {
+                body = _received[route];
+            }
+
+            Dictionary<string, object?>? root = MiniJson.AsObject(MiniJson.Parse(Encoding.UTF8.GetString(body)));
+            return MiniJson.GetString(MiniJson.GetObject(root, "author"), "id");
         }
 
         [UnityTest]

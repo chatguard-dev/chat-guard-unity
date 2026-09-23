@@ -42,8 +42,12 @@ In Unity, open **Window → Package Manager**, click **+ → Add package from gi
 https://github.com/chatguard-dev/chat-guard-unity.git
 ```
 
+Adding a package from a git URL needs Git installed and on your `PATH`, because Unity runs it to
+fetch the package. If `git --version` doesn't work in a terminal, install Git and restart Unity
+and Unity Hub first.
+
 To pin a release, add its tag:
-`https://github.com/chatguard-dev/chat-guard-unity.git#v0.4.0`. The [changelog](CHANGELOG.md) lists
+`https://github.com/chatguard-dev/chat-guard-unity.git#v0.4.1`. The [changelog](CHANGELOG.md) lists
 what changed in each release.
 
 ### 2. Get a test key
@@ -141,9 +145,11 @@ Which kind your game needs depends on where the check runs:
 
 **Server keys** can do everything your project allows, so a server key inside a game build is a
 leaked key: anyone can pull it out and spend your plan. The package guards against it. A player
-build with a `cg_live_` key in a `ChatGuardConfig` asset under a `Resources` folder fails on purpose
-(Dedicated Server builds are exempt), and a server key that reaches a player at runtime logs a
-warning. On a server, read the key from an environment variable or your secret store.
+build fails on purpose when a `ChatGuardConfig` asset it ships holds a `cg_live_` key (Dedicated
+Server builds are exempt). A build ships the config assets under a `Resources` folder and the ones
+its scenes, `Resources` assets or Preloaded Assets (**Player Settings**) use, such as the config of a
+[Hook](#no-code-the-chat-guard-hook-component) in a scene. A server key that reaches a player at runtime logs a warning. On a server, read the key
+from an environment variable or your secret store.
 
 **Publishable keys** are made to ship inside the game, the way analytics keys are. They can only
 check messages and read usage, every request must name the player (`author.id`), and each key has a
@@ -159,8 +165,8 @@ for testing (see [WebGL builds](#webgl-builds)).
 
 ### Picking the key per build
 
-The build check reads config assets under `Resources`; it can't see keys you pass from code. Let
-Unity's scripting defines pick the key for each build:
+The build check reads the config assets a build ships (under `Resources`, or used by what the build
+includes); it can't see keys you pass from code. Let Unity's scripting defines pick the key for each build:
 
 ```csharp
 using System;
@@ -667,18 +673,24 @@ short timeout (2 s is plenty) and decide what your game does when no answer come
 ### No server of your own: the relay
 
 `Examples~/server-relay` is a small ASP.NET Core service (.NET 10) that you host. Your game sends it
-the message, and it calls Chat Guard with a server key that never reaches players' devices:
+the message, and it calls Chat Guard with a server key that never reaches players' devices. Unity
+hides folders ending in `~`, so run it from a clone of this repository:
 
 ```bash
-CHATGUARD_API_KEY=cg_live_... RELAY_SHARED_SECRET=change-me dotnet run --project Examples~/server-relay
+git clone https://github.com/chatguard-dev/chat-guard-unity.git
+cd chat-guard-unity/Examples~/server-relay
+CHATGUARD_API_KEY=cg_live_... RELAY_SHARED_SECRET=change-me dotnet run
 ```
 
 The game posts `{ "message", "author_id", "channel_type", "language" }` to `/chat` and gets Chat
 Guard's response back, which `ChatGuardClient.TryParseResponse(json, latencyMs)` turns into a
-`ModerationResult`. When Chat Guard answers with an error, the example relay answers `allow` with
-`degraded: true`; change that to your own policy, and replace its shared-secret check with your own
-player authentication before you ship. A modified client can still skip the relay, so as with a publishable key, the check
-is advisory.
+`ModerationResult`. When the game leaves out `language`, the relay sends none, so your project's
+default language applies. When Chat Guard answers with an error or can't be reached in 3 seconds, the
+example relay answers `allow` with `degraded: true` and a `degraded_reason` the package reads
+(`upstream`, `upstream_rate_limit` or `timeout`). Change that to your own policy, and replace its
+shared-secret check with your own player authentication before you ship. A modified client can
+still skip the relay, so as with a publishable key, the check is advisory. The
+[relay's README](Examples~/server-relay/README.md) has a request to try it with.
 
 ## Handling the result
 
@@ -704,7 +716,7 @@ The rest of the result, for logging, analytics or your own policy:
 | `Degraded`, `DegradedReason` | The model didn't answer (a word filter or your `OfflineBehavior` did), and why ([details](#if-chat-guard-cant-be-reached)). |
 | `Source`, `Error` | `Server`, or `Local` when the package answered on the device; `Error` then says why the server wasn't used. |
 | `LatencyMs`, `Cached`, `Model` | The round trip in milliseconds, whether the scores came from the 10-minute cache, and what answered: the model's version, `local-filter/<version>`, or `offline/allow-all` / `offline/block-all`. |
-| `QuotaUsed`, `QuotaLimit` | Your organization's usage in the current 30-day window (for test keys, the daily test allowance). |
+| `QuotaUsed`, `QuotaLimit` | Your organization's usage over the last 30 days, a rolling window (on paid plans the bill counts per billing month). For test keys, the daily test allowance. |
 
 `ModerationAction`, `VerdictSet`, `VerdictCategory`, `TargetVerdict`, `TargetChoice` and
 `DegradedReason` live in the `ChatGuard.Core` namespace and `Thresholds` in `ChatGuard.Core.Scoring`;
@@ -857,12 +869,29 @@ public void OnPlayerMessage(string playerId, string text)
 ### No code: the Chat Guard Hook component
 
 Add **Chat Guard Hook** (`ChatGuardUnityHook`) to a GameObject, assign a config asset, and wire
-`onDeliver`, `onSuppress` and `onModerated` to your chat UI. Call `Moderate(message, authorId)` from
-your code. A UnityEvent, such as an input field's submit event, can only pass the message, so it
-calls `Moderate(message)` without a player id; that is fine with a test key, but a publishable key
-requires the id. In-flight requests are cancelled when the component is destroyed. While its
-`configureStaticApi` box is ticked (the default), its `Awake` also calls
+`onDeliver`, `onSuppress` and `onModerated` to your chat UI. A UnityEvent, such as an input field's
+submit event, calls `Moderate(message)`. From code you can also call `Moderate(message, authorId)`,
+which sends exactly the id you pass. In-flight requests are cancelled when the component is
+destroyed. While its `configureStaticApi` box is ticked (the default), its `Awake` also calls
 `ChatGuardSdk.Configure(config)`, which replaces anything configured before it.
+
+`Moderate(message)` sends the Hook's `PlayerId` as the player id. Set it once you know who the
+player is: from code (`hook.PlayerId = accountId;`) or from a UnityEvent with `SetPlayerId(string)`.
+Until then the Hook sends a random id instead. It creates that id the first time it needs one and
+keeps it in `PlayerPrefs` under `chatguard.install_id` (`ChatGuardUnityHook.InstallIdKey`), one per
+installation of the game. That way per-player limits work, a publishable key gets the player id it
+requires, and a player's data can still be exported or erased (see below). Dedicated Server builds
+never create it: there, a message without a `PlayerId` goes without a player id.
+
+The install id is random and names no device or account, but it is a persistent pseudonymous
+identifier: it stays the same until the game's `PlayerPrefs` are cleared. Mention it in your game's
+privacy notice, or set `PlayerId` before the first message so it is never created.
+
+To answer a player's request to export or erase their data, you need the id their messages were
+sent with. If you set `PlayerId`, it's an id you already know. Otherwise, read the install id on the
+player's device with `PlayerPrefs.GetString(ChatGuardUnityHook.InstallIdKey)` and show it where the
+player can copy it, such as a settings or support screen, so they can include it in their request.
+An empty string means the Hook never created one on that device.
 
 ### Why there are no Tasks
 
@@ -924,6 +953,11 @@ ChatGuardSdk.Moderate(new ModerationRequest(text, playerId)
     priorWarnings = 1,
 }, result => { /* ... */ });
 ```
+
+Give each `ThreadEntry` the player id of whoever wrote the line as its `author`
+(`new ThreadEntry(otherPlayerId, line)`), the same id you pass when that player writes. Erasing a
+player also removes their lines from other players' stored context, and it finds them by that label.
+Entries without text are skipped, since the API refuses a message whose context holds one.
 
 ## If Chat Guard can't be reached
 
@@ -989,18 +1023,32 @@ the package makes itself, offline or degraded (see
 |---|---|---|
 | The warning "ChatGuardSdk.Configure was not called and no Resources/ChatGuardConfig.asset was found", or `Error` is "no API key configured" | No key reached the package, so the local filter answers. | Call `ChatGuardSdk.Configure(key)` before the first message, or save the config asset as `Assets/Resources/ChatGuardConfig.asset`. |
 | `Error` starts with `HTTP 401` | The key is wrong or was revoked. | Copy it again from **API keys**. A key is shown once; create a new one if it's lost. |
+| Package Manager can't add the package: no git executable was found | Unity needs Git to fetch a package from a git URL. | Install Git, check that `git --version` works in a terminal, then restart Unity and Unity Hub. |
 | `Error` starts with `HTTP 403` in a WebGL build | Browsers may only use publishable keys. | Use a `cg_pub_` key there. |
-| `Error` starts with `HTTP 400` with a publishable key | Publishable keys need the player's id. | Pass `playerId` (the `authorId` argument) with every message. |
+| `Error` starts with `HTTP 403: Organization suspended` (code `org_suspended`) | Your organization is suspended, so Chat Guard refuses its keys and the package answers on the device. | See the notice on the dashboard, or email support@chatguard.dev. |
+| `Error` starts with `HTTP 400` | The API refused a field of the request, and `Error` names it. With a publishable key it is usually `author.id`: publishable keys need the player's id. | Pass `playerId` (the `authorId` argument) with every message, or fix the field `Error` names (the limits are in the [API reference](Documentation~/api-reference.md#post-v1moderate)). |
 | `DegradedReason.UpstreamRateLimit` | With `Source == Local` and `HTTP 429`: a rate limit (the key's, the organization's, or with a publishable key the player's: 2 requests a second, bursts of 10) or the daily test allowance. With `Source == Server`: a shared per-minute allowance (Free and test keys) or the model provider's limit. | Back off for the `retry_after` seconds that `Error` shows, send test traffic more slowly, and see [Rate limits](Documentation~/api-reference.md#rate-limits). |
 | The build fails: "… holds a cg_live_ server key" | A server key would ship inside the game. | Put a `cg_pub_` key in the asset, or check messages on your server. |
 | The build fails: "… holds a cg_test_ test key, and this is a release build" | Test keys are for development builds. | Ship a `cg_pub_` key, or tick **Development Build** to keep testing. |
 
 ## Help and support
 
-- **Questions and bugs:** the `#help` forum on the Chat Guard Discord, https://chatguard.dev/discord.
+- **Questions:** the `#help` forum on the Chat Guard Discord, https://chatguard.dev/discord.
   Include your Unity version, the package version (`package.json`) and the platform.
 - **Feature ideas:** `#feature-requests` on the same server; upvote an existing post instead of repeating it.
-- **Account, billing or player-data requests:** support@chatguard.dev, so we can look at your organization privately.
+- **Found a bug?** [Open an issue](https://github.com/chatguard-dev/chat-guard-unity/issues/new/choose).
+  Leave keys and players' messages out of it.
+- **Account, billing and technical help:** support@chatguard.dev. On Indie we aim to reply within 2
+  business days, on Studio within 1, and on Enterprise as agreed. Free plans get help on Discord, and
+  by email for account or billing problems.
+- **Plans and custom volume:** sales@chatguard.dev.
+- **Player requests (access, erasure):** use **Export a player** or **Erase a player** on your
+  project's **Settings** page, or call `DELETE /v1/evidence` from your server
+  ([API reference](Documentation~/api-reference.md)). Never email player ids or message text; if you
+  write to us about a record, give its verdict id or request id.
+- **Security issues:** report them privately through
+  [GitHub](https://github.com/chatguard-dev/chat-guard-unity/security/advisories/new) or to
+  support@chatguard.dev, never in a public issue. [SECURITY.md](.github/SECURITY.md) has the details.
 - **Service status:** `#status` on Discord and https://github.com/chatguard-dev/status.
 
 Never post a server or test key (`cg_live_…` or `cg_test_…`) in public; the Discord server blocks

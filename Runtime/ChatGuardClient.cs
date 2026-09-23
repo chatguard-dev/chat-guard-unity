@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Threading;
 using ChatGuard.Core;
@@ -24,6 +25,24 @@ namespace ChatGuard.Unity
     /// </summary>
     public sealed class ChatGuardClient
     {
+        /// <summary>Thread entries sent with a message: the last 5, which is what the model reads (the API accepts 50).</summary>
+        private const int MaxThreadEntries = 5;
+
+        /// <summary>Longest thread text the API accepts, in UTF-16 code units; a longer one is cut to this before sending.</summary>
+        private const int MaxThreadTextChars = 2000;
+
+        /// <summary>Longest thread author the API accepts; a longer one is sent as an empty label.</summary>
+        private const int MaxThreadAuthorChars = 128;
+
+        /// <summary>Largest account_age_days and prior_warnings the API accepts; a larger count is sent as this.</summary>
+        private const int MaxAuthorCount = 100000;
+
+        /// <summary>Longest excerpt of an HTTP error body that is not a problem description which <see cref="ModerationResult.Error"/> quotes.</summary>
+        private const int MaxErrorBodyChars = 200;
+
+        /// <summary>Longest <see cref="ModerationResult.Error"/> text made from a problem description, after "HTTP nnn: ".</summary>
+        private const int MaxProblemChars = 1000;
+
         private static LocalFilter? s_filter;
         private static bool s_warnedLiveKey;
 
@@ -193,8 +212,11 @@ namespace ChatGuard.Unity
             UnityEngine.Debug.LogWarning("Chat Guard: a cg_live_ server key is being used in a player build. Ship a cg_pub_ publishable key in clients (moderate-only, per-player limits) or move moderation to your server or relay.");
         }
 
-        /// <summary>True in Dedicated Server builds (the UNITY_SERVER define). A property, not a constant, so the check above compiles without unreachable-code warnings.</summary>
-        private static bool IsDedicatedServerBuild
+        /// <summary>
+        /// True in Dedicated Server builds (the UNITY_SERVER define). A property, not a constant, so the checks that read it
+        /// compile without unreachable-code warnings. <see cref="ChatGuardUnityHook"/> reads it too.
+        /// </summary>
+        internal static bool IsDedicatedServerBuild
         {
             get
             {
@@ -394,7 +416,7 @@ namespace ChatGuard.Unity
             if (uwr.responseCode != 200)
             {
                 DegradedReason reason = uwr.responseCode == 429 ? DegradedReason.UpstreamRateLimit : DegradedReason.Upstream;
-                return Fallback(request, reason, "HTTP " + uwr.responseCode + ": " + Truncate(uwr.downloadHandler.text));
+                return Fallback(request, reason, DescribeHttpError(uwr.responseCode, uwr.downloadHandler.text));
             }
 
             // The server's usual body is read straight from the response bytes. Whatever that reader does not handle is
@@ -477,14 +499,15 @@ namespace ChatGuard.Unity
             where TSink : struct, IRequestJsonSink
         {
             // Written directly rather than by building a Dictionary tree for MiniJson.Write (the serializer up to 0.2.1).
-            // The output must stay byte-identical to that tree's: same keys, order and omission rules, strings escaped by
-            // MiniJson.WriteString, counts as invariant integers written only when >= 0. The RequestJson_*_ExactString
-            // tests in ClientJsonTests pin this, and RequestBytesTests pins the UTF-8 sink to Encoding.UTF8.GetBytes of
-            // the string. A null thread entry inside the last-5 window throws NullReferenceException when its author is
-            // read (RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows), before Moderate creates any
-            // UnityWebRequest.
+            // The output keeps that tree's keys, order and omission rules, strings escaped by MiniJson.WriteString and
+            // counts as invariant integers written only when >= 0. Since 0.4.1 it also leaves out what the API would
+            // answer with a 400 for the whole message: thread entries that are null or have no text are skipped (the last
+            // 5 of the others are sent, and no "thread" key when none is left), a thread text over 2,000 characters is
+            // cut, a thread author that is null or over 128 characters is sent as an empty label, and counts above 100,000 are sent as
+            // 100,000. The RequestJson_*_ExactString tests in ClientJsonTests pin this, and RequestBytesTests pins the
+            // UTF-8 sink to Encoding.UTF8.GetBytes of the string.
             List<ThreadEntry>? thread = request.thread;
-            int threadStart = thread != null ? Math.Max(0, thread.Count - 5) : 0;
+            int threadStart = ThreadWindowStart(thread);
             string channelType = ChannelTypeFor(request);
             string language = LanguageFor(request);
             string? ageRating = AgeRatingFor(request);
@@ -504,30 +527,37 @@ namespace ChatGuard.Unity
                 if (request.accountAgeDays >= 0)
                 {
                     sink.WriteLiteral(first ? "\"account_age_days\":" : ",\"account_age_days\":");
-                    sink.WriteNonNegativeInt(request.accountAgeDays);
+                    sink.WriteNonNegativeInt(Math.Min(request.accountAgeDays, MaxAuthorCount));
                     first = false;
                 }
 
                 if (request.priorWarnings >= 0)
                 {
                     sink.WriteLiteral(first ? "\"prior_warnings\":" : ",\"prior_warnings\":");
-                    sink.WriteNonNegativeInt(request.priorWarnings);
+                    sink.WriteNonNegativeInt(Math.Min(request.priorWarnings, MaxAuthorCount));
                 }
 
                 sink.WriteLiteral("}");
             }
 
-            if (thread != null && thread.Count > 0)
+            if (thread != null && threadStart < thread.Count)
             {
                 sink.WriteLiteral(",\"thread\":[");
+                bool first = true;
                 for (int i = threadStart; i < thread.Count; i++)
                 {
-                    ThreadEntry entry = thread[i];
-                    sink.WriteLiteral(i == threadStart ? "{\"author\":" : ",{\"author\":");
-                    sink.WriteString(entry.author ?? "unknown");
+                    ThreadEntry? entry = thread[i];
+                    if (!IsSendable(entry))
+                    {
+                        continue;
+                    }
+
+                    sink.WriteLiteral(first ? "{\"author\":" : ",{\"author\":");
+                    sink.WriteString(ThreadAuthor(entry!.author));
                     sink.WriteLiteral(",\"text\":");
-                    sink.WriteString(entry.text ?? string.Empty);
+                    sink.WriteString(ThreadText(entry.text));
                     sink.WriteLiteral("}");
+                    first = false;
                 }
 
                 sink.WriteLiteral("]");
@@ -569,6 +599,61 @@ namespace ChatGuard.Unity
             sink.WriteLiteral("}");
         }
 
+        /// <summary>
+        /// Index of the first thread entry that is sent. The window runs to the end of the list and holds the last
+        /// <see cref="MaxThreadEntries"/> sendable entries (<see cref="IsSendable"/>); entries in it that are not sendable
+        /// are skipped. Equals the list's count (nothing is sent) when no entry is sendable, and 0 for a null list.
+        /// </summary>
+        private static int ThreadWindowStart(List<ThreadEntry>? thread)
+        {
+            if (thread == null)
+            {
+                return 0;
+            }
+
+            int start = thread.Count;
+            int kept = 0;
+            for (int i = thread.Count - 1; i >= 0 && kept < MaxThreadEntries; i--)
+            {
+                if (IsSendable(thread[i]))
+                {
+                    start = i;
+                    kept++;
+                }
+            }
+
+            return start;
+        }
+
+        /// <summary>A thread entry is sent when it exists and has text; the API refuses the whole message otherwise.</summary>
+        private static bool IsSendable(ThreadEntry? entry)
+        {
+            return entry != null && !string.IsNullOrEmpty(entry.text);
+        }
+
+        /// <summary>
+        /// The author label sent for a thread entry: its own, or an empty label when null or longer than the API accepts,
+        /// so the model reads the line as unlabeled rather than as one more player (0.4.0 sent "unknown").
+        /// </summary>
+        private static string ThreadAuthor(string? author)
+        {
+            return author == null || author.Length > MaxThreadAuthorChars ? string.Empty : author;
+        }
+
+        /// <summary>
+        /// A sendable entry's text, cut to the first 2,000 characters when longer (the model reads the first 500 either
+        /// way). A surrogate pair at the cut is left out whole.
+        /// </summary>
+        private static string ThreadText(string text)
+        {
+            if (text.Length <= MaxThreadTextChars)
+            {
+                return text;
+            }
+
+            return text.Substring(0, char.IsHighSurrogate(text[MaxThreadTextChars - 1]) ? MaxThreadTextChars - 1 : MaxThreadTextChars);
+        }
+
         /// <summary>The channel type a request is sent with: its own, or the client default when empty.</summary>
         private string ChannelTypeFor(ModerationRequest request)
         {
@@ -590,14 +675,14 @@ namespace ChatGuard.Unity
         /// <summary>
         /// Initial builder capacity for <see cref="BuildRequestJson"/>: every string that is written (message, author id,
         /// the thread entries that are sent, channel values, request id) plus their keys and separators. 128 covers the
-        /// fixed keys and brackets, 48 the two counts, and 32 each thread entry's keys (or "unknown" for a null author).
-        /// Only a hint (escapes can make the JSON longer), so it is computed in long, never throws, reads only the last-5
-        /// window and is capped at 64K chars.
+        /// fixed keys and brackets, 48 the two counts, and 32 each thread entry's keys.
+        /// Only a hint (escapes can make the JSON longer), so it is computed in long, never throws, reads only the window
+        /// of entries that are sent and is capped at 64K chars.
         /// </summary>
         private int EstimateRequestJsonLength(ModerationRequest request)
         {
             List<ThreadEntry>? thread = request.thread;
-            int threadStart = thread != null ? Math.Max(0, thread.Count - 5) : 0;
+            int threadStart = ThreadWindowStart(thread);
             long estimate = 128L + (request.message?.Length ?? 0) + (request.authorId?.Length ?? 0) + (request.requestId?.Length ?? 0)
                 + ChannelTypeFor(request).Length + LanguageFor(request).Length + (AgeRatingFor(request)?.Length ?? 0);
             if (request.accountAgeDays >= 0 || request.priorWarnings >= 0)
@@ -610,7 +695,10 @@ namespace ChatGuard.Unity
                 for (int i = threadStart; i < thread.Count; i++)
                 {
                     ThreadEntry? entry = thread[i];
-                    estimate += 32 + (entry?.author?.Length ?? 0) + (entry?.text?.Length ?? 0);
+                    if (IsSendable(entry))
+                    {
+                        estimate += 32 + ThreadAuthor(entry!.author).Length + Math.Min(entry.text.Length, MaxThreadTextChars);
+                    }
                 }
             }
 
@@ -708,14 +796,121 @@ namespace ChatGuard.Unity
             return new ModerationResult(action, severity, merged, server.Target, true, server.DegradedReason, server.Cached, server.Model, server.LatencyMs, server.Id, server.QuotaUsed, server.QuotaLimit, ResultSource.Server, null);
         }
 
-        private static string Truncate(string? text)
+        /// <summary>
+        /// The <see cref="ModerationResult.Error"/> of a non-200 answer: "HTTP " and the status code, then the body. A
+        /// problem description (the API's JSON errors) is given as plain text, its title, detail and per-field errors,
+        /// then its code and retry_after, so a detail is never cut off (a suspended organization's names the support
+        /// address). Any other body is quoted, cut to its first 200 characters.
+        /// </summary>
+        internal static string DescribeHttpError(long statusCode, string? body)
         {
-            if (string.IsNullOrEmpty(text))
+            string prefix = "HTTP " + statusCode.ToString(CultureInfo.InvariantCulture) + ": ";
+            string? problem = DescribeProblem(body);
+            if (problem != null)
             {
-                return string.Empty;
+                return prefix + problem;
             }
 
-            return text!.Length > 200 ? text.Substring(0, 200) : text;
+            if (string.IsNullOrEmpty(body))
+            {
+                return prefix;
+            }
+
+            return prefix + (body!.Length > MaxErrorBodyChars ? body.Substring(0, MaxErrorBodyChars) : body);
+        }
+
+        /// <summary>
+        /// Plain text of a problem description, for example "Organization suspended. This organization is suspended, so
+        /// its API keys are refused. Contact support@chatguard.dev. (code: org_suspended)", capped at 1,000 characters.
+        /// Null when the body is not a JSON object with a title, detail, errors, code or retry_after.
+        /// </summary>
+        private static string? DescribeProblem(string? body)
+        {
+            if (body == null || body.Length > 64 * 1024 || !body.TrimStart().StartsWith("{", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            Dictionary<string, object?>? root;
+            try
+            {
+                root = MiniJson.AsObject(MiniJson.Parse(body));
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+
+            if (root == null)
+            {
+                return null;
+            }
+
+            var text = new StringBuilder();
+            AppendSentence(text, MiniJson.GetString(root, "title"));
+            AppendSentence(text, MiniJson.GetString(root, "detail"));
+            Dictionary<string, object?>? errors = MiniJson.GetObject(root, "errors");
+            if (errors != null)
+            {
+                foreach (KeyValuePair<string, object?> field in errors)
+                {
+                    List<object?>? messages = MiniJson.AsArray(field.Value);
+                    if (messages == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (object? message in messages)
+                    {
+                        if (message is string line && line.Length > 0)
+                        {
+                            AppendSentence(text, field.Key + ": " + line);
+                        }
+                    }
+                }
+            }
+
+            string? code = MiniJson.GetString(root, "code");
+            bool hasRetryAfter = root.TryGetValue("retry_after", out object? retryAfter) && retryAfter is double;
+            if (!string.IsNullOrEmpty(code) || hasRetryAfter)
+            {
+                text.Append(text.Length > 0 ? " (" : "(");
+                if (!string.IsNullOrEmpty(code))
+                {
+                    text.Append("code: ").Append(code);
+                }
+
+                if (hasRetryAfter)
+                {
+                    text.Append(!string.IsNullOrEmpty(code) ? ", retry_after: " : "retry_after: ").Append(((double)retryAfter!).ToString(CultureInfo.InvariantCulture));
+                }
+
+                text.Append(')');
+            }
+
+            if (text.Length == 0)
+            {
+                return null;
+            }
+
+            return text.Length > MaxProblemChars ? text.ToString(0, MaxProblemChars) : text.ToString();
+        }
+
+        /// <summary>Appends a sentence, after ". " (or a space when the text so far ends a sentence); blank ones are skipped.</summary>
+        private static void AppendSentence(StringBuilder text, string? sentence)
+        {
+            if (string.IsNullOrWhiteSpace(sentence))
+            {
+                return;
+            }
+
+            if (text.Length > 0)
+            {
+                char last = text[text.Length - 1];
+                text.Append(last == '.' || last == '!' || last == '?' ? " " : ". ");
+            }
+
+            text.Append(sentence!.Trim());
         }
 
         /// <summary>

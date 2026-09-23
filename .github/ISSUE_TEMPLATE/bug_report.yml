@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in the Unity package doesn't work the way the README says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Issues are public. Never paste API keys (`cg_live_…`, `cg_test_…` or `cg_pub_…`), player ids or players' messages here.** Replace them with placeholders. If we need to find one request, its verdict id or request id is enough.
+
+        Questions go to `#help` on the [Chat Guard Discord](https://chatguard.dev/discord). Report security problems [privately](https://github.com/chatguard-dev/chat-guard-unity/security/advisories/new), not here.
+  - type: input
+    id: unity-version
+    attributes:
+      label: Unity version
+      placeholder: 2022.3.45f1
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: The `version` in the package's `package.json`, or the tag you pinned.
+      placeholder: 0.4.1
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: The Editor, or the build target (Windows, macOS, Linux, Android, iOS, WebGL, Dedicated Server…).
+      placeholder: Android build
+    validations:
+      required: true
+  - type: input
+    id: networking
+    attributes:
+      label: Networking stack
+      description: Netcode for GameObjects, Mirror, FishNet, Photon Fusion 2, Photon PUN 2, Photon Chat, Vivox, Nakama, Colyseus, your own server, or none. Add the version.
+      placeholder: Netcode for GameObjects 2.7
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did and what you saw. A few lines of code help.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Console output, or the result's `Error`, `Source` and `DegradedReason`. Replace keys, player ids and messages first.
+      render: text
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: This issue contains no API keys, player ids or players' messages.
+          required: true

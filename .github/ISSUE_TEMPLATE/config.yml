@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+# GitHub only shows contact links with an http(s) URL; a mailto: link is silently dropped. So each
+# email address goes in the link's text, and the link opens the page that lists it.
+contact_links:
+  - name: Questions and help
+    url: https://chatguard.dev/discord
+    about: "Ask in the #help forum on the Chat Guard Discord."
+  - name: Account and billing
+    url: https://chatguard.dev/terms#6-availability-and-support
+    about: "Email support@chatguard.dev: your organization, subscription or sign-in. Never email player ids or players' messages."
+  - name: Plans and custom volume
+    url: https://chatguard.dev/#pricing
+    about: "Email sales@chatguard.dev: questions before you buy, Enterprise and custom volume."

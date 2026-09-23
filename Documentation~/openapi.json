@@ -1,9 +1,14 @@
 {
   "openapi": "3.1.1",
   "info": {
-    "title": "ChatGuard.Api | v1",
+    "title": "Chat Guard API",
     "version": "1.0.0"
   },
+  "servers": [
+    {
+      "url": "https://api.chatguard.dev"
+    }
+  ],
   "paths": {
     "/api/plans": {
       "get": {
@@ -110,8 +115,43 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          }
+        ]
       }
     },
     "/v1/quota": {
@@ -130,8 +170,43 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          }
+        ]
       }
     },
     "/v1/feedback": {
@@ -166,8 +241,63 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          }
+        ]
       }
     },
     "/v1/evidence/{projectId}/{authorOpaqueId}": {
@@ -205,8 +335,43 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          }
+        ]
       }
     },
     "/v1/evidence/{projectId}": {
@@ -253,8 +418,43 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          }
+        ]
       }
     },
     "/api/auth/providers": {
@@ -366,8 +566,8 @@
           "auth"
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -381,7 +581,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs": {
@@ -404,7 +609,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -438,7 +648,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}": {
@@ -469,7 +684,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -514,7 +734,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/usage": {
@@ -545,7 +770,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/members": {
@@ -579,7 +809,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -624,7 +859,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/members/{membershipId}": {
@@ -680,7 +920,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -708,10 +953,15 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/projects": {
@@ -745,7 +995,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -790,7 +1045,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}": {
@@ -821,7 +1081,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -866,7 +1131,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -885,10 +1155,15 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/keys": {
@@ -922,7 +1197,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -967,7 +1247,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/keys/{keyId}": {
@@ -997,10 +1282,15 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/rules": {
@@ -1034,7 +1324,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1079,7 +1374,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/rules/{ruleId}": {
@@ -1135,7 +1435,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -1163,10 +1468,15 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/usage": {
@@ -1197,7 +1507,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/verdicts": {
@@ -1264,7 +1579,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/evidence": {
@@ -1310,15 +1630,18 @@
               }
             }
           }
-        }
-      }
-    },
-    "/api/projects/{projectId}/evidence/export": {
-      "get": {
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
+      },
+      "delete": {
         "tags": [
           "projects"
         ],
-        "operationId": "ExportEvidence",
+        "operationId": "DeleteEvidence",
         "parameters": [
           {
             "name": "projectId",
@@ -1336,6 +1659,50 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "$ref": "#/components/schemas/EvidenceDeleteResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
+      }
+    },
+    "/api/projects/{projectId}/evidence/export": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "description": "One part of the project's evidence: up to 100,000 rows, oldest first. When more rows remain, the response carries the X-ChatGuard-Next-Cursor header; pass its value as `after` to get the next part. No header means this was the last part.",
+        "operationId": "ExportEvidence",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/EvidenceRow"
@@ -1343,8 +1710,23 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/evidence/authors/{authorOpaqueId}": {
@@ -1383,7 +1765,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/evidence/authors": {
@@ -1431,7 +1818,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/authors/export": {
@@ -1469,7 +1861,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/feedback": {
@@ -1511,7 +1908,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/projects/{projectId}/test": {
@@ -1568,7 +1970,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/billing": {
@@ -1599,7 +2006,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/billing/checkout": {
@@ -1646,7 +2058,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/billing/change": {
@@ -1693,7 +2110,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/billing/cancel": {
@@ -1724,7 +2146,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     },
     "/api/orgs/{orgId}/billing/portal": {
@@ -1755,7 +2182,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "DashboardToken": [ ]
+          }
+        ]
       }
     }
   },
@@ -1812,7 +2244,10 @@
           "author_opaque_id",
           "exported_at",
           "verdicts",
-          "evidence"
+          "evidence",
+          "thread_lines",
+          "feedback",
+          "truncated"
         ],
         "type": "object",
         "properties": {
@@ -1838,9 +2273,46 @@
             "items": {
               "$ref": "#/components/schemas/EvidenceRow"
             }
+          },
+          "thread_lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorThreadLine"
+            }
+          },
+          "feedback": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedbackRow"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
           }
         },
-        "description": "Everything a project stores for one author id, oldest first: the answer to a player's access or portability request."
+        "description": "Everything a project stores for one author id, oldest first: the answer to a player's access or portability request.\nthread_lines are the player's lines kept as thread context in other players' evidence; feedback holds the feedback\n(with notes) on the player's verdicts. Each list covers at most 100,000 stored rows; truncated is true when one of\nthem stopped there and newer rows were left out."
+      },
+      "AuthorThreadLine": {
+        "required": [
+          "evidence_id",
+          "ts",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "description": "One line of the player's, kept as thread context in another player's evidence row (evidence_id, ts)."
       },
       "AuthProvidersResponse": {
         "required": [
@@ -1940,7 +2412,7 @@
             "format": "double"
           }
         },
-        "description": "Per-category probability thresholds. A null level means that level is not used for the category.\nPlain settable properties so the API can persist the object as JSON (projects.thresholds)."
+        "description": "Per-category probability thresholds. A null level means that level is not used for the category."
       },
       "ChoosePlanRequest": {
         "required": [
@@ -2078,10 +2550,25 @@
           }
         }
       },
+      "EvidenceDeleteResponse": {
+        "required": [
+          "deleted"
+        ],
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "description": "Evidence rows deleted by DELETE /api/projects/{projectId}/evidence."
+      },
       "EvidenceErasureResponse": {
         "required": [
           "evidence_deleted",
-          "verdicts_anonymized"
+          "verdicts_anonymized",
+          "evidence_redacted",
+          "feedback_notes_cleared"
         ],
         "type": "object",
         "properties": {
@@ -2092,8 +2579,17 @@
           "verdicts_anonymized": {
             "type": "integer",
             "format": "int32"
+          },
+          "evidence_redacted": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "feedback_notes_cleared": {
+            "type": "integer",
+            "format": "int32"
           }
-        }
+        },
+        "description": "What an erasure changed: the player's evidence rows deleted; their verdict rows stripped of author id, message hash\nand request id; other evidence rows whose stored thread context lost the player's lines; feedback notes cleared on\nthe player's verdicts."
       },
       "EvidenceRow": {
         "required": [
@@ -2457,6 +2953,13 @@
         "type": "object",
         "properties": {
           "type": {
+            "enum": [
+              "global",
+              "team",
+              "dm",
+              "guild",
+              null
+            ],
             "type": [
               "null",
               "string"
@@ -2479,13 +2982,13 @@
         }
       },
       "ModerateRequest": {
+        "required": [
+          "message"
+        ],
         "type": "object",
         "properties": {
           "message": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "type": "string"
           },
           "author": {
             "oneOf": [
@@ -2533,6 +3036,12 @@
             "format": "uuid"
           },
           "action": {
+            "enum": [
+              "allow",
+              "flag",
+              "hide",
+              "block"
+            ],
             "type": "string"
           },
           "severity": {
@@ -2559,6 +3068,13 @@
             "type": "boolean"
           },
           "degraded_reason": {
+            "enum": [
+              "quota",
+              "upstream",
+              "upstream_rate_limit",
+              "timeout",
+              null
+            ],
             "type": [
               "null",
               "string"
@@ -2714,7 +3230,7 @@
             ]
           }
         },
-        "description": "SuspendedAt/SuspendedReason: set by the suspend-org admin command; the dashboard shows the reason."
+        "description": "suspended_at and suspended_reason are set while the organization is suspended; the dashboard shows the reason to its members."
       },
       "PagedResponseOfEvidenceRow": {
         "required": [
@@ -2893,6 +3409,42 @@
           },
           "public": {
             "type": "boolean"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3223,7 +3775,7 @@
             "format": "date-time"
           }
         },
-        "description": "Rolling 30-UTC-day usage of the organization in model verdicts (decision 2026-09-22): block-rule hits, degraded answers, test keys and replays are not counted."
+        "description": "Rolling 30-UTC-day usage of the organization in model verdicts: block-rule hits, degraded answers, test keys and replays are not counted."
       },
       "RedirectResponse": {
         "required": [
@@ -3349,7 +3901,7 @@
             "format": "double"
           }
         },
-        "description": "Weights for SeverityCalculator. Config, not code: the API loads these from\nappsettings (Moderation:Severity) and projects may override them in their thresholds JSON."
+        "description": "Weights for the severity score. A project may override the defaults in its settings."
       },
       "SubscriptionView": {
         "required": [
@@ -3433,7 +3985,7 @@
             "$ref": "#/components/schemas/CategoryThresholds"
           }
         },
-        "description": "Project-editable action thresholds. The defaults reproduce the spec's mapping exactly:\nblock if threat.p ≥ 0.85 or severity ≥ 2.5; hide if insult/hate/sexual ≥ 0.80;\nflag if any category ≥ 0.55 or the Score confidence is below 0.5; otherwise allow."
+        "description": "Project-editable action thresholds. The defaults: block if threat.p ≥ 0.85 or severity ≥ 2.5; hide if insult/hate/sexual ≥ 0.80; flag if any category ≥ 0.55 or the Score confidence is below 0.5; otherwise allow."
       },
       "TurnstileConfig": {
         "required": [
@@ -3598,7 +4150,7 @@
             "format": "int64"
           }
         },
-        "description": "Model verdicts on one UTC day: the metered counter, the same source as the quota and the Polar usage events."
+        "description": "Model verdicts on one UTC day: the metered counter, the same source as the quota and billing."
       },
       "UsageResponse": {
         "required": [
@@ -3657,7 +4209,10 @@
             "format": "date-time"
           },
           "message_hash": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "author_opaque_id": {
             "type": [
@@ -3716,7 +4271,8 @@
               "string"
             ]
           }
-        }
+        },
+        "description": "message_hash and author_opaque_id are null once the author was erased."
       },
       "WebhookAck": {
         "required": [
@@ -3735,6 +4291,19 @@
             ]
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "http",
+        "description": "A key of the project, sent as Authorization: Bearer <key>. cg_live_ keys are for servers, cg_pub_ keys ship in game clients (POST /v1/moderate and GET /v1/quota only, author.id required), cg_test_ keys are for the Editor and development builds.",
+        "scheme": "bearer"
+      },
+      "DashboardToken": {
+        "type": "http",
+        "description": "The dashboard's short-lived access token, from POST /api/auth/refresh.",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
       }
     }
   },

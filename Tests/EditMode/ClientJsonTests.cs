@@ -106,7 +106,8 @@ namespace ChatGuard.Tests
         }
 
         // The exact strings below were captured from the 0.2.1 serializer (a Dictionary tree written by MiniJson.Write),
-        // so they pin the request bytes: key order, which fields are omitted, escaping, and the last-5 thread window.
+        // so they pin the request bytes: key order, which fields are omitted and escaping. The thread and count cases
+        // follow the 0.4.1 rules: what the API would refuse with a 400 is skipped, cut or capped before sending.
         private static ChatGuardClient DefaultsClient()
         {
             return new ChatGuardClient("cg_test_x", "https://api.example.com");
@@ -134,37 +135,105 @@ namespace ChatGuard.Tests
         {
             var request = new ModerationRequest { message = null!, authorId = string.Empty, accountAgeDays = int.MaxValue, priorWarnings = -5, thread = null!, requestId = string.Empty };
             string json = DefaultsClient().BuildRequestJson(request);
-            Assert.That(json, Is.EqualTo("{\"message\":\"\",\"author\":{\"account_age_days\":2147483647},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+            Assert.That(json, Is.EqualTo("{\"message\":\"\",\"author\":{\"account_age_days\":100000},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
         }
 
         [Test]
-        public void RequestJson_SendsLastFiveThreadEntries_ExactString()
+        public void RequestJson_CountsAbove100000_AreSentAs100000()
+        {
+            ChatGuardClient client = DefaultsClient();
+            Assert.That(client.BuildRequestJson(new ModerationRequest("gg") { accountAgeDays = 100000, priorWarnings = 100001 }), Is.EqualTo("{\"message\":\"gg\",\"author\":{\"account_age_days\":100000,\"prior_warnings\":100000},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_SendsLastFiveThreadEntriesWithText_ExactString()
         {
             var request = new ModerationRequest("reply", "p1")
             {
                 thread = new List<ThreadEntry>
                 {
-                    new ThreadEntry("p0", "dropped: only the last 5 are sent"),
-                    new ThreadEntry("p2", "one"),
+                    new ThreadEntry("p0", "dropped: only the last 5 with text are sent"),
+                    new ThreadEntry("p1", "one"),
+                    new ThreadEntry("p2", "two"),
                     new ThreadEntry(null!, "no author"),
                     new ThreadEntry("p3", null!),
                     new ThreadEntry("p4", string.Empty),
-                    new ThreadEntry("p5", "five"),
+                    null!,
+                    new ThreadEntry("p5", "four"),
+                    new ThreadEntry("p6", "five"),
                 },
             };
             string json = DefaultsClient().BuildRequestJson(request);
-            Assert.That(json, Is.EqualTo("{\"message\":\"reply\",\"author\":{\"id\":\"p1\"},\"thread\":[{\"author\":\"p2\",\"text\":\"one\"},{\"author\":\"unknown\",\"text\":\"no author\"},{\"author\":\"p3\",\"text\":\"\"},{\"author\":\"p4\",\"text\":\"\"},{\"author\":\"p5\",\"text\":\"five\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+            Assert.That(json, Is.EqualTo("{\"message\":\"reply\",\"author\":{\"id\":\"p1\"},\"thread\":[{\"author\":\"p1\",\"text\":\"one\"},{\"author\":\"p2\",\"text\":\"two\"},{\"author\":\"\",\"text\":\"no author\"},{\"author\":\"p5\",\"text\":\"four\"},{\"author\":\"p6\",\"text\":\"five\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
         }
 
+        /// <summary>
+        /// The API refuses a whole message whose thread has an entry without text (ThreadEntry.text defaults to ""), so
+        /// such entries and null ones are skipped wherever they are, and a thread left empty is not sent at all.
+        /// </summary>
         [Test]
-        public void RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows()
+        public void RequestJson_NullAndEmptyThreadEntries_AreSkipped_ExactString()
         {
             ChatGuardClient client = DefaultsClient();
             var outside = new ModerationRequest("m") { thread = new List<ThreadEntry> { null!, new ThreadEntry("a", "1"), new ThreadEntry("b", "2"), new ThreadEntry("c", "3"), new ThreadEntry("d", "4"), new ThreadEntry("e", "5") } };
             Assert.That(client.BuildRequestJson(outside), Is.EqualTo("{\"message\":\"m\",\"thread\":[{\"author\":\"a\",\"text\":\"1\"},{\"author\":\"b\",\"text\":\"2\"},{\"author\":\"c\",\"text\":\"3\"},{\"author\":\"d\",\"text\":\"4\"},{\"author\":\"e\",\"text\":\"5\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
 
-            var inside = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null!, new ThreadEntry("c", "3") } };
-            Assert.Throws<NullReferenceException>(() => client.BuildRequestJson(inside));
+            var inside = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null!, new ThreadEntry("b", string.Empty), new ThreadEntry("c", "3"), new ThreadEntry() } };
+            Assert.That(client.BuildRequestJson(inside), Is.EqualTo("{\"message\":\"m\",\"thread\":[{\"author\":\"a\",\"text\":\"1\"},{\"author\":\"c\",\"text\":\"3\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+
+            var nothingToSend = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry(), null!, new ThreadEntry("a", null!) } };
+            Assert.That(client.BuildRequestJson(nothingToSend), Is.EqualTo("{\"message\":\"m\",\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_LongThreadTextIsCut_LongThreadAuthorIsEmpty()
+        {
+            ChatGuardClient client = DefaultsClient();
+            string text = new string('a', 2500);
+            string longAuthor = new string('p', 129);
+            var request = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry(longAuthor, text), new ThreadEntry(new string('q', 128), "ok") } };
+            List<object?> thread = MiniJson.AsArray(MiniJson.AsObject(MiniJson.Parse(client.BuildRequestJson(request)))!["thread"])!;
+            Assert.That(MiniJson.GetString(MiniJson.AsObject(thread[0]), "text"), Is.EqualTo(new string('a', 2000)));
+            Assert.That(MiniJson.GetString(MiniJson.AsObject(thread[0]), "author"), Is.EqualTo(string.Empty));
+            Assert.That(MiniJson.GetString(MiniJson.AsObject(thread[1]), "author"), Is.EqualTo(new string('q', 128)), "128 characters are accepted");
+
+            // A surrogate pair across the cut is left out whole rather than split into a lone surrogate.
+            string emoji = new string('a', 1999) + "\ud83c\udfae" + "tail";
+            var split = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("p", emoji) } };
+            List<object?> cut = MiniJson.AsArray(MiniJson.AsObject(MiniJson.Parse(client.BuildRequestJson(split)))!["thread"])!;
+            Assert.That(MiniJson.GetString(MiniJson.AsObject(cut[0]), "text"), Is.EqualTo(new string('a', 1999)));
+        }
+
+        /// <summary>
+        /// ModerationResult.Error of a non-200 answer: problem descriptions become plain text with nothing cut off (the
+        /// suspended organization's detail ends with the support address, past the 200 characters of a quoted body).
+        /// </summary>
+        [Test]
+        public void DescribeHttpError_ProblemDescriptions_ArePlainTextAndWhole()
+        {
+            const string suspended = "{\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.4\",\"title\":\"Organization suspended\",\"status\":403,\"detail\":\"This organization is suspended, so its API keys are refused. Contact support@chatguard.dev.\",\"code\":\"org_suspended\",\"traceId\":\"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01\"}";
+            Assert.That(suspended.Length, Is.GreaterThan(200));
+            Assert.That(ChatGuardClient.DescribeHttpError(403, suspended), Is.EqualTo("HTTP 403: Organization suspended. This organization is suspended, so its API keys are refused. Contact support@chatguard.dev. (code: org_suspended)"));
+
+            const string limited = "{\"type\":\"https://tools.ietf.org/html/rfc6585#section-4\",\"title\":\"Too many requests\",\"status\":429,\"detail\":\"Rate limit exceeded for this author.\",\"retry_after\":3}";
+            Assert.That(ChatGuardClient.DescribeHttpError(429, limited), Is.EqualTo("HTTP 429: Too many requests. Rate limit exceeded for this author. (retry_after: 3)"));
+
+            const string invalid = "{\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.1\",\"title\":\"One or more validation errors occurred.\",\"status\":400,\"errors\":{\"author.id\":[\"author.id is required when using a publishable (cg_pub_) key.\"],\"channel.type\":[\"channel.type must be one of global, team, dm, guild.\"]}}";
+            Assert.That(ChatGuardClient.DescribeHttpError(400, invalid), Is.EqualTo("HTTP 400: One or more validation errors occurred. author.id: author.id is required when using a publishable (cg_pub_) key. channel.type: channel.type must be one of global, team, dm, guild."));
+
+            Assert.That(ChatGuardClient.DescribeHttpError(429, "{\"code\":\"x\",\"retry_after\":1.5}"), Is.EqualTo("HTTP 429: (code: x, retry_after: 1.5)"));
+        }
+
+        [Test]
+        public void DescribeHttpError_OtherBodies_AreQuoted_UpTo200Characters()
+        {
+            Assert.That(ChatGuardClient.DescribeHttpError(500, "{\"error\":\"boom\"}"), Is.EqualTo("HTTP 500: {\"error\":\"boom\"}"));
+            Assert.That(ChatGuardClient.DescribeHttpError(429, "rate limited"), Is.EqualTo("HTTP 429: rate limited"));
+            Assert.That(ChatGuardClient.DescribeHttpError(401, string.Empty), Is.EqualTo("HTTP 401: "));
+            Assert.That(ChatGuardClient.DescribeHttpError(401, null), Is.EqualTo("HTTP 401: "));
+            string html = "<html>" + new string('x', 400) + "</html>";
+            Assert.That(ChatGuardClient.DescribeHttpError(502, html), Is.EqualTo("HTTP 502: " + html.Substring(0, 200)));
+            Assert.That(ChatGuardClient.DescribeHttpError(502, "{\"title\":"), Is.EqualTo("HTTP 502: {\"title\":"), "malformed JSON is quoted");
         }
 
         [Test]

@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <RootNamespace>ChatGuard.ServerRelay</RootNamespace>
     <Description>Example relay: game clients post chat to this service, which calls Chat Guard with the server-held key.</Description>
   </PropertyGroup>

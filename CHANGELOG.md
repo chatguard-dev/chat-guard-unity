@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.1 — 2026-09-23
+
+The Chat Guard Hook sends a player id, the build check also reads the configs your scenes use, and
+requests the API would refuse are fixed before they are sent.
+
+- `ChatGuardUnityHook.PlayerId` and `SetPlayerId(string)`, which a UnityEvent can call. `Moderate(message)` now
+  sends `PlayerId` as the player id. Without one it sends a random id that the Hook creates the first time it
+  needs one and keeps in `PlayerPrefs` under `chatguard.install_id` (`ChatGuardUnityHook.InstallIdKey`), one per
+  installation, so per-player limits, export and erasure work and a publishable key gets the id it requires. It
+  used to send no player id. The install id names no device or account, but it is a persistent pseudonymous
+  identifier: mention it in your privacy notice, or set `PlayerId` before the first message so it is never
+  created. To answer a player's request to export or erase their data, read their install id on the device with
+  `PlayerPrefs.GetString(ChatGuardUnityHook.InstallIdKey)`, for example on a support screen. Dedicated Server
+  builds never create it; there a message without a `PlayerId` still goes without a player id. The Hook only
+  touches `PlayerPrefs` on the main thread. `Moderate(message, authorId)` is unchanged.
+- The build check also inspects the `ChatGuardConfig` assets that the build's scenes, any asset under a Resources
+  folder or the Preloaded Assets in Player Settings use, directly or through other assets (the config of a Hook in
+  a scene, for example), not only the ones under Resources. The rules are the same: no `cg_live_` key in a player
+  build (Dedicated Server builds are exempt), no `cg_test_` key in a release build. It reads the scene list of the
+  build being made, so build scripts with their own list are covered too.
+- Requests the API would refuse with a 400 because of one context field are fixed before sending. Thread entries
+  that are null or have empty text (the default of `ThreadEntry.text`) are skipped and the last 5 of the others
+  are sent; a null entry used to make `Moderate` fall back to the local filter, and an empty one made every
+  message fall back while it stayed among the last five. Thread text over 2,000 characters is cut to 2,000, a
+  thread author that is null or over 128 characters is sent as an empty label (it used to be `unknown`, which the
+  model read as one more player), and `accountAgeDays` and `priorWarnings` above 100,000 are sent as 100,000.
+- `ModerationResult.Error` for an HTTP error whose body is a problem description (the API's JSON errors) gives
+  its title, detail, field errors, `code` and `retry_after` as plain text, in full. A suspended organization's
+  answer used to be cut at 200 characters, in the middle of the support address; it now reads
+  `HTTP 403: Organization suspended. This organization is suspended, so its API keys are refused. Contact
+  support@chatguard.dev. (code: org_suspended)`. Other bodies are still quoted up to 200 characters.
+- `Examples~/server-relay` answers with a `degraded_reason` the package reads (`upstream`, `upstream_rate_limit`
+  for a 429, `timeout`) instead of `relay_upstream`, which read as no reason. A network error or a timeout gets
+  the same degraded `allow` instead of an HTTP 500. It sends `language` only when the game gives one, so the
+  project's default language applies instead of English, and it builds without nullable warnings.
+- README: account, billing and technical help go to support@chatguard.dev, plans and custom volume to
+  sales@chatguard.dev, and player requests to **Export a player** / **Erase a player** or `DELETE /v1/evidence`,
+  never by email. Bugs go to GitHub issues and security problems to private reports. It also covers Git as a
+  prerequisite for adding the package from a git URL, running the relay from a clone, the player id as the
+  thread author label, the Hook's player id and how to find a player's install id, a troubleshooting row for a
+  suspended organization, and `QuotaUsed` as usage over a rolling 30 days.
+- The package repository has a bug report form that asks for the Unity, package and networking versions and
+  warns never to paste keys or players' messages, a security policy (`.github/SECURITY.md`) with private
+  reporting, and links for questions (Discord), account and billing (support@chatguard.dev) and plans
+  (sales@chatguard.dev).
+
 ## 0.4.0 — 2026-09-23
 
 The API key is the only setting you need.

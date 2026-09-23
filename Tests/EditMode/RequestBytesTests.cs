@@ -68,15 +68,20 @@ namespace ChatGuard.Tests
             {
                 thread = new List<ThreadEntry>
                 {
-                    new ThreadEntry("p0", "dropped: only the last 5 are sent"),
-                    new ThreadEntry("p2", "one"),
+                    new ThreadEntry("p0", "dropped: only the last 5 with text are sent"),
+                    new ThreadEntry("p1", "one"),
+                    new ThreadEntry("p2", "two"),
                     new ThreadEntry(null!, "no author"),
                     new ThreadEntry("p3", null!),
                     new ThreadEntry("p4", string.Empty),
-                    new ThreadEntry("p5", "five"),
+                    null!,
+                    new ThreadEntry("p5", "four"),
+                    new ThreadEntry("p6", "five"),
                 },
             };
-            AssertSameBytes(defaults, lastFive, "last five thread entries");
+            AssertSameBytes(defaults, lastFive, "last five thread entries with text");
+            var cut = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry(new string('p', 129), new string('\u00e9', 1999) + "\ud83c\udfae tail") } };
+            AssertSameBytes(defaults, cut, "long thread text and author");
             var nullOutsideWindow = new ModerationRequest("m") { thread = new List<ThreadEntry> { null!, new ThreadEntry("a", "1"), new ThreadEntry("b", "2"), new ThreadEntry("c", "3"), new ThreadEntry("d", "4"), new ThreadEntry("e", "5") } };
             AssertSameBytes(defaults, nullOutsideWindow, "null entry outside the window");
             var escapes = new ModerationRequest("q\"b\\s/ \b\f\n\r\t\u0000\u0001\u001f\u007f \ud800 x\udc00 \u2028\u2029 \u0442\u044b \u4f60\u597d \ud83c\udfae", "id\"\\\n")
@@ -113,31 +118,12 @@ namespace ChatGuard.Tests
         }
 
         [Test]
-        public void NullThreadEntryInsideWindow_ThrowsLikeBuildRequestJson()
+        public void NullAndEmptyThreadEntries_AreSkippedLikeBuildRequestJson()
         {
             ChatGuardClient client = DefaultsClient();
-            var inside = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null!, new ThreadEntry("c", "3") } };
-            Assert.Throws<NullReferenceException>(() => client.BuildRequestJson(inside));
-            Assert.Throws<NullReferenceException>(() => client.WriteRequestUtf8(inside));
-
-            // The thread's buffer is still usable afterwards.
-            AssertSameBytes(client, new ModerationRequest("after"), "after an exception");
-        }
-
-        [Test]
-        public void Moderate_NullThreadEntryInsideWindow_CompletesWithOfflineFallback()
-        {
-            ChatGuardClient client = DefaultsClient();
-            var inside = new ModerationRequest("you idiot") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null! } };
-            string expectedError = Assert.Throws<NullReferenceException>(() => client.BuildRequestJson(inside)).Message;
-
-            // Moderate catches what the body writer throws and completes synchronously with the offline fallback,
-            // carrying the message BuildRequestJson throws, as before.
-            ModerationOperation op = client.Moderate(inside);
-            Assert.That(op.IsDone, Is.True);
-            Assert.That(op.Result!.Source, Is.EqualTo(ResultSource.Local));
-            Assert.That(op.Result.DegradedReason, Is.EqualTo(ChatGuard.Core.DegradedReason.Offline));
-            Assert.That(op.Result.Error, Is.EqualTo(expectedError));
+            var inside = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null!, new ThreadEntry("b", string.Empty), new ThreadEntry("c", "3") } };
+            AssertSameBytes(client, inside, "null and empty entries inside the window");
+            AssertSameBytes(client, new ModerationRequest("m") { thread = new List<ThreadEntry> { null!, new ThreadEntry() } }, "no entry left to send");
         }
 
         [Test]

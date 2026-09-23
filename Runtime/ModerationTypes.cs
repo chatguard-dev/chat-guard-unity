@@ -14,11 +14,16 @@ namespace ChatGuard.Unity
         /// <summary>Opaque player id (never a real name or email).</summary>
         public string? authorId;
 
+        /// <summary>Days since the player's account was created; negative sends none, and more than 100,000 is sent as 100,000.</summary>
         public int accountAgeDays = -1;
 
+        /// <summary>Warnings the player already had; negative sends none, and more than 100,000 is sent as 100,000.</summary>
         public int priorWarnings = -1;
 
-        /// <summary>Recent messages for context (author, text); the server keeps the last 5.</summary>
+        /// <summary>
+        /// Recent messages for context, oldest first. The last 5 entries that have text are sent; entries that are null
+        /// or have no text are skipped, because the API refuses a message whose thread holds one.
+        /// </summary>
         public List<ThreadEntry> thread = new List<ThreadEntry>();
 
         /// <summary>global | team | dm | guild</summary>
@@ -46,8 +51,13 @@ namespace ChatGuard.Unity
     [Serializable]
     public sealed class ThreadEntry
     {
+        /// <summary>
+        /// The player id of whoever wrote the line, the same id you pass as the author id when that player writes.
+        /// Erasing a player also removes their lines from other players' stored context by matching this label.
+        /// </summary>
         public string author = string.Empty;
 
+        /// <summary>The line itself. Entries with empty text are not sent; text over 2,000 characters is cut.</summary>
         public string text = string.Empty;
 
         public ThreadEntry()
