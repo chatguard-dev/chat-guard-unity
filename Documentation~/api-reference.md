@@ -41,7 +41,10 @@ read `Retry-After`.
 
 ## POST /v1/moderate
 
-Request (only `message` is required):
+Request (only `message` is required). The optional header `X-ChatGuard-App` carries the game's
+bundle id (the Unity SDK sends `Application.identifier`, for example `com.studio.game`). It
+identifies the game, not a player, and is only used to spot one game spread across several Free
+organizations; a malformed value is ignored.
 
 ```json
 {
