@@ -28,6 +28,26 @@
         }
       }
     },
+    "/api/turnstile": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "TurnstileConfig",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnstileConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/webhooks/polar": {
       "post": {
         "tags": [
@@ -2005,8 +2025,15 @@
               "null",
               "string"
             ]
+          },
+          "turnstile_token": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
-        }
+        },
+        "description": "TurnstileToken: the Cloudflare Turnstile widget's token, required while the check is on (GET /api/turnstile)."
       },
       "CreateOrgResponse": {
         "required": [
@@ -2626,6 +2653,19 @@
           },
           "quota": {
             "$ref": "#/components/schemas/QuotaView"
+          },
+          "suspended_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "suspended_reason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2659,8 +2699,22 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "suspended_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "suspended_reason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
-        }
+        },
+        "description": "SuspendedAt/SuspendedReason: set by the suspend-org admin command; the dashboard shows the reason."
       },
       "PagedResponseOfEvidenceRow": {
         "required": [
@@ -3381,6 +3435,20 @@
         },
         "description": "Project-editable action thresholds. The defaults reproduce the spec's mapping exactly:\nblock if threat.p ≥ 0.85 or severity ≥ 2.5; hide if insult/hate/sexual ≥ 0.80;\nflag if any category ≥ 0.55 or the Score confidence is below 0.5; otherwise allow."
       },
+      "TurnstileConfig": {
+        "required": [
+          "site_key"
+        ],
+        "type": "object",
+        "properties": {
+          "site_key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UpdateMemberRequest": {
         "required": [
           "role"
@@ -3675,13 +3743,13 @@
       "name": "plans"
     },
     {
+      "name": "auth"
+    },
+    {
       "name": "billing"
     },
     {
       "name": "moderation"
-    },
-    {
-      "name": "auth"
     },
     {
       "name": "orgs"

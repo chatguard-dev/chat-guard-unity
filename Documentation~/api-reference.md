@@ -100,7 +100,8 @@ Response:
   keys `quota` shows the organization's daily test allowance instead.
 
 Errors: `400` validation problem (`errors` map), `401` invalid key, `403` server or test key sent
-from a browser (see [Browser clients](#browser-clients-cors)), `429` per-key or organization
+from a browser (see [Browser clients](#browser-clients-cors)) or an organization suspended for
+breaking the terms (`code: org_suspended`, on every `/v1` endpoint), `429` per-key or organization
 rate limit or the daily test allowance (`Retry-After` header and `retry_after` seconds), `5xx`
 unexpected.
 
