@@ -7,10 +7,11 @@ using UnityEngine;
 namespace ChatGuard.Unity
 {
     /// <summary>
-    /// The simplest way in. Configure once at startup from code with
-    /// <see cref="Configure(ChatGuardSettings)"/> (no asset needed), or put a <see cref="ChatGuardConfig"/> at
-    /// <c>Assets/Resources/ChatGuardConfig.asset</c> and it is picked up on first use; the Resources asset is
-    /// optional. Then call <see cref="Moderate(string, string, Action{ModerationResult})"/>. Wraps one shared
+    /// The simplest way in. Configure once at startup from code with <see cref="Configure(string, string)"/> (only
+    /// the key is needed) or <see cref="Configure(ChatGuardSettings)"/> (no asset needed), or put a
+    /// <see cref="ChatGuardConfig"/> at <c>Assets/Resources/ChatGuardConfig.asset</c> and it is picked up on first
+    /// use; the Resources asset is optional. Then call
+    /// <see cref="Moderate(string, string, Action{ModerationResult})"/>. Wraps one shared
     /// <see cref="ChatGuardClient"/>; use the instance API directly when you need several clients or full control.
     /// Main thread only.
     /// </summary>
@@ -77,13 +78,14 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Shorthand for <see cref="Configure(ChatGuardSettings)"/> with only a key and base URL; everything else keeps
-        /// its <see cref="ChatGuardSettings"/> default (2 s timeout, local filter when offline, language "en", channel
-        /// "global", age rating "16+").
+        /// Shorthand for <see cref="Configure(ChatGuardSettings)"/> with only a key: <c>ChatGuardSdk.Configure("cg_pub_...")</c>.
+        /// Requests go to <see cref="ChatGuardSettings.DefaultBaseUrl"/> unless <paramref name="baseUrl"/> names another
+        /// origin; everything else keeps its <see cref="ChatGuardSettings"/> default (2 s timeout, local filter when
+        /// offline, language "en", channel "global", age rating "16+").
         /// </summary>
-        public static void Configure(string apiKey, string baseUrl)
+        public static void Configure(string apiKey, string? baseUrl = null)
         {
-            Configure(new ChatGuardSettings { ApiKey = apiKey ?? string.Empty, BaseUrl = baseUrl ?? string.Empty });
+            Configure(new ChatGuardSettings { ApiKey = apiKey ?? string.Empty, BaseUrl = baseUrl ?? ChatGuardSettings.DefaultBaseUrl });
         }
 
         /// <summary>Forgets the shared client (tests, hot reload). The next call creates a new one.</summary>
@@ -149,7 +151,7 @@ namespace ChatGuard.Unity
                 return new ChatGuardClient(config);
             }
 
-            Debug.LogWarning("Chat Guard: ChatGuardSdk.Configure was not called and no Resources/" + DefaultConfigResource + ".asset was found; using the local filter only. Call ChatGuardSdk.Configure(new ChatGuardSettings { ApiKey = ..., BaseUrl = ... }) at startup, or create a config via Assets > Create > Chat Guard > Config and save it as Assets/Resources/" + DefaultConfigResource + ".asset.");
+            Debug.LogWarning("Chat Guard: ChatGuardSdk.Configure was not called and no Resources/" + DefaultConfigResource + ".asset was found; using the local filter only. Call ChatGuardSdk.Configure(\"<your key>\") at startup, or create a config via Assets > Create > Chat Guard > Config, paste the key into it and save it as Assets/Resources/" + DefaultConfigResource + ".asset.");
             return new ChatGuardClient(new ChatGuardSettings());
         }
 

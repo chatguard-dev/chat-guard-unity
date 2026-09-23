@@ -41,15 +41,9 @@ namespace ChatGuard.Editor
                 }
             }
 
-            if (_config != null)
+            if (_config != null && string.IsNullOrEmpty(_config.apiKey))
             {
-                bool noKey = string.IsNullOrEmpty(_config.apiKey);
-                bool noUrl = string.IsNullOrEmpty(_config.baseUrl);
-                if (noKey || noUrl)
-                {
-                    string missing = noKey && noUrl ? "no API key and no base URL" : noKey ? "no API key" : "no base URL";
-                    EditorGUILayout.HelpBox("The config has " + missing + ": results come from the local filter only. Both are needed to reach the server.", MessageType.Info);
-                }
+                EditorGUILayout.HelpBox("The config has no API key: results come from the local filter only. Paste a cg_test_ key from the dashboard's API keys page to reach the server.", MessageType.Info);
             }
 
             if (!string.IsNullOrEmpty(_status))

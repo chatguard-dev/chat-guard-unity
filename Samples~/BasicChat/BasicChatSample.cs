@@ -11,7 +11,8 @@ namespace ChatGuard.Samples
     /// <summary>
     /// Builds a minimal chat UI at runtime (no prefabs needed): an input field, three threshold sliders
     /// (insult hide, threat block, severity block) and a log panel showing each verdict.
-    /// Assign a ChatGuardConfig with a cg_test_ key for a live run, or leave the key empty to see the local filter.
+    /// Uses the assigned ChatGuardConfig, or else the key given to ChatGuardSdk.Configure (or the
+    /// Assets/Resources/ChatGuardConfig.asset it loads). With a cg_test_ key you see live verdicts; with no key, the local filter.
     /// </summary>
     public sealed class BasicChatSample : MonoBehaviour
     {
@@ -35,7 +36,7 @@ namespace ChatGuard.Samples
         /// <summary>Builds the client from plain settings so the sliders never write into the assigned config asset.</summary>
         private void RebuildClient()
         {
-            ChatGuardSettings settings = config != null ? config.ToSettings() : new ChatGuardSettings();
+            ChatGuardSettings settings = config != null ? config.ToSettings() : ChatGuardSdk.Client.Settings;
             Thresholds thresholds = (config != null ? config.thresholds : new ThresholdsOverride()).ToCore();
             thresholds.Insult.Hide = _insultHide != null ? _insultHide.value : 0.8f;
             thresholds.Threat.Block = _threatBlock != null ? _threatBlock.value : 0.85f;

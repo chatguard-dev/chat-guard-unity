@@ -8,14 +8,18 @@ namespace ChatGuard.Unity
     /// Plain C# settings for <see cref="ChatGuardClient"/>: the code-only way to configure the SDK, with no
     /// <see cref="ChatGuardConfig"/> asset in <c>Resources</c>. Pass one to
     /// <see cref="ChatGuardSdk.Configure(ChatGuardSettings)"/> or <see cref="ChatGuardClient(ChatGuardSettings)"/>;
-    /// the defaults are the same as the asset's. Leaving <see cref="ApiKey"/> or <see cref="BaseUrl"/> empty means
-    /// "local filter only": every message is answered by the built-in dictionary filter and nothing is sent.
+    /// the defaults are the same as the asset's. <see cref="ApiKey"/> is the only setting you must fill in: requests
+    /// go to <see cref="DefaultBaseUrl"/> unless <see cref="BaseUrl"/> says otherwise. Leaving <see cref="ApiKey"/>
+    /// empty means "local filter only": every message is answered by the built-in dictionary filter and nothing is sent.
     /// A client build ships a publishable (<c>cg_pub_</c>) key; test (<c>cg_test_</c>) keys are for the Editor and
     /// development builds, and <c>cg_live_</c> server keys belong on your game server or relay (see README, "Where the
     /// key lives").
     /// </summary>
     public sealed class ChatGuardSettings
     {
+        /// <summary>The Chat Guard API. Requests go here unless <see cref="BaseUrl"/> names another origin.</summary>
+        public const string DefaultBaseUrl = "https://api.chatguard.dev";
+
         /// <summary>
         /// API key sent as the bearer token. Empty (the default) disables the server and uses the local filter only.
         /// Client builds ship a <c>cg_pub_</c> key; <c>cg_test_</c> keys only in the Editor and development builds.
@@ -23,11 +27,11 @@ namespace ChatGuard.Unity
         public string ApiKey { get; set; } = string.Empty;
 
         /// <summary>
-        /// Origin of the Chat Guard API or your relay, for example <c>https://api.chatguard.dev</c> (an absolute
-        /// http/https URL; a trailing slash is ignored). Empty (the default) disables the server and uses the local
-        /// filter only.
+        /// Origin that requests go to: <see cref="DefaultBaseUrl"/> (the default), or a proxy of your own that serves
+        /// <c>/v1/moderate</c> the same way. An absolute http/https URL; a trailing slash is ignored, and null, empty or
+        /// blank means <see cref="DefaultBaseUrl"/>.
         /// </summary>
-        public string BaseUrl { get; set; } = string.Empty;
+        public string BaseUrl { get; set; } = DefaultBaseUrl;
 
         /// <summary>Largest accepted <see cref="TimeoutSeconds"/> (10 minutes).</summary>
         public const float MaxTimeoutSeconds = 600f;
@@ -68,8 +72,9 @@ namespace ChatGuard.Unity
         /// <summary>
         /// Throws <see cref="ArgumentException"/> when <see cref="TimeoutSeconds"/> is not a positive finite number
         /// of seconds (NaN, infinity, zero and negatives are rejected) or exceeds <see cref="MaxTimeoutSeconds"/>, or
-        /// when <see cref="BaseUrl"/> is neither empty nor an absolute http/https URL. Called by the
-        /// <see cref="ChatGuardClient"/> constructor; an empty key or URL is valid (local filter only).
+        /// when <see cref="BaseUrl"/> is neither blank nor an absolute http/https URL. Called by the
+        /// <see cref="ChatGuardClient"/> constructor; an empty key is valid (local filter only), and so is a blank URL
+        /// (<see cref="DefaultBaseUrl"/>).
         /// </summary>
         public void Validate()
         {
@@ -78,9 +83,9 @@ namespace ChatGuard.Unity
                 throw new ArgumentException("ChatGuardSettings.TimeoutSeconds must be a positive finite number of seconds, at most " + MaxTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " (got " + TimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + ").", nameof(TimeoutSeconds));
             }
 
-            if (!string.IsNullOrEmpty(BaseUrl) && !IsAbsoluteHttpUrl(BaseUrl))
+            if (!string.IsNullOrWhiteSpace(BaseUrl) && !IsAbsoluteHttpUrl(BaseUrl.Trim()))
             {
-                throw new ArgumentException("ChatGuardSettings.BaseUrl must be empty (local filter only) or an absolute http:// or https:// URL, for example https://api.chatguard.dev.", nameof(BaseUrl));
+                throw new ArgumentException("ChatGuardSettings.BaseUrl must be an absolute http:// or https:// URL, or empty for the default (" + DefaultBaseUrl + ").", nameof(BaseUrl));
             }
         }
 

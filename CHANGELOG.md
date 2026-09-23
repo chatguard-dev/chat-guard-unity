@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 — 2026-09-23
+
+The API key is the only setting you need.
+
+- Requests go to `https://api.chatguard.dev` (`ChatGuardSettings.DefaultBaseUrl`) unless a base URL says otherwise.
+  `ChatGuardSdk.Configure("cg_pub_...")` and `new ChatGuardClient("cg_pub_...")` work with the key alone (their
+  `baseUrl` parameter is optional now), `ChatGuardSettings.BaseUrl` defaults to the API, and a new `ChatGuardConfig`
+  asset comes with the URL filled in.
+- **Behaviour change:** a blank base URL (null, empty or whitespace) now means the default API instead of "local filter
+  only", so a config asset saved by an earlier version with a key and an empty URL starts calling the API. Only an
+  empty key keeps a client on the local filter: `HasServer` is true whenever a key is set, and the offline error reads
+  "no API key configured". A base URL with spaces around it is trimmed.
+- The tester window only points out a missing key, and the warning logged when nothing was configured shows
+  `ChatGuardSdk.Configure("<your key>")`.
+- The runtime warning about a `cg_live_` key no longer fires in Dedicated Server builds, which may hold one (the build
+  check already allowed them).
+- Basic Chat sample: without a config assigned it uses the key given to `ChatGuardSdk.Configure` (or the Resources
+  asset) instead of always running the local filter.
+- `Examples~/server-relay` calls `https://api.chatguard.dev` unless `CHATGUARD_BASE_URL` is set; it used to default to
+  `http://localhost:5000`, its own address.
+- README rewritten for onboarding: a five-step quick start, which key goes where for each setup (with a script that
+  picks the key per build), integration examples for Netcode for GameObjects (2.7 and newer, and the older RPC pair for
+  1.x and 2.0 to 2.6), Mirror, FishNet, Photon Fusion 2, Photon PUN 2, Photon Chat, Unity Vivox, Nakama, Colyseus and
+  any other server, and tables for handling the result, configuration and troubleshooting. Test keys are no longer
+  described as safe to commit: they can call every `/v1` endpoint, player-data erasure included.
+
 ## 0.3.0 — 2026-09-23
 
 Cancellation tokens for `Moderate`, a stricter build check for test keys and the game's bundle id on every request

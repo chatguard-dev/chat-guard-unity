@@ -79,11 +79,11 @@ namespace ChatGuard.Unity
     public sealed class ChatGuardConfig : ScriptableObject
     {
         [Header("Connection")]
-        [Tooltip("Client builds ship a cg_pub_ (publishable) key; cg_test_ keys only in the Editor and development builds; cg_live_ server keys stay on your server or relay. Empty = local filter only.")]
+        [Tooltip("The key from the dashboard (API keys page); the only field you must fill in. Client builds ship a cg_pub_ (publishable) key; cg_test_ keys only in the Editor and development builds; cg_live_ server keys stay on your server or relay. Empty = local filter only.")]
         public string apiKey = string.Empty;
 
-        [Tooltip("Chat Guard API base URL, for example https://api.chatguard.dev. Empty = local filter only.")]
-        public string baseUrl = string.Empty;
+        [Tooltip("Where requests go. Keep the default (https://api.chatguard.dev) unless a proxy of your own serves /v1/moderate. Empty also means the default.")]
+        public string baseUrl = ChatGuardSettings.DefaultBaseUrl;
 
         [Tooltip("Whole request budget in seconds, rounded up to whole seconds (minimum 1 s); on expiry the offline behaviour applies.")]
         [Range(0.5f, 10f)] public float timeoutSeconds = 2f;

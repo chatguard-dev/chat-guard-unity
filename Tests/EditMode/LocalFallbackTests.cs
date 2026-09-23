@@ -145,7 +145,7 @@ namespace ChatGuard.Tests
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(new ChatGuardSettings { BaseUrl = "api.example.com" }));
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(new ChatGuardSettings { BaseUrl = "ftp://api.example.com" }));
 
-            // Empty key and URL are valid (local filter only); the client copies the settings and trims the URL.
+            // An empty key is valid (local filter only); the client copies the settings and trims the URL.
             var settings = new ChatGuardSettings { BaseUrl = "https://api.example.com/", ChannelType = "team" };
             var client = new ChatGuardClient(settings);
             Assert.That(client.HasServer, Is.False);
@@ -178,11 +178,10 @@ namespace ChatGuard.Tests
             try
             {
                 var defaults = new ChatGuardSettings();
-                Assert.That(config.baseUrl, Is.Empty, "a fresh asset must not point at a placeholder URL");
+                Assert.That(config.baseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl), "a fresh asset only needs a key");
                 Assert.That(config.apiKey, Is.Empty);
 
                 ChatGuardSettings s = config.ToSettings();
-                Assert.That(s.BaseUrl, Is.Empty, "ToSettings must keep the empty URL (local filter only)");
                 Assert.That(s.BaseUrl, Is.EqualTo(defaults.BaseUrl));
                 Assert.That(s.ApiKey, Is.EqualTo(defaults.ApiKey));
                 Assert.That(s.TimeoutSeconds, Is.EqualTo(defaults.TimeoutSeconds));
@@ -194,8 +193,64 @@ namespace ChatGuard.Tests
                 Assert.That(s.Thresholds, Is.Null);
 
                 var client = new ChatGuardClient(config);
-                Assert.That(client.HasServer, Is.False);
-                Assert.That(client.Settings.BaseUrl, Is.Empty);
+                Assert.That(client.HasServer, Is.False, "no key means local filter only");
+                Assert.That(client.Settings.BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+            }
+        }
+
+        [Test]
+        public void KeyAlone_ReachesTheDefaultApi()
+        {
+            Assert.That(ChatGuardSettings.DefaultBaseUrl, Is.EqualTo("https://api.chatguard.dev"));
+            Assert.That(new ChatGuardSettings().BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
+
+            // Every way of passing only a key, including a blank URL, sends requests to the default API.
+            var clients = new[]
+            {
+                new ChatGuardClient("cg_test_x"),
+                new ChatGuardClient("cg_test_x", null),
+                new ChatGuardClient("cg_test_x", string.Empty),
+                new ChatGuardClient(new ChatGuardSettings { ApiKey = "cg_test_x" }),
+                new ChatGuardClient(new ChatGuardSettings { ApiKey = "cg_test_x", BaseUrl = string.Empty }),
+                new ChatGuardClient(new ChatGuardSettings { ApiKey = "cg_test_x", BaseUrl = " " }),
+                new ChatGuardClient(new ChatGuardSettings { ApiKey = "cg_test_x", BaseUrl = null! }),
+            };
+            foreach (ChatGuardClient client in clients)
+            {
+                Assert.That(client.HasServer, Is.True);
+                Assert.That(client.Settings.BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
+            }
+
+            // Another origin still works, without surrounding blanks or a trailing slash.
+            Assert.That(new ChatGuardClient("cg_test_x", " https://proxy.example.com/cg/ ").Settings.BaseUrl, Is.EqualTo("https://proxy.example.com/cg"));
+
+            try
+            {
+                ChatGuardSdk.Configure("cg_test_x");
+                Assert.That(ChatGuardSdk.Client.HasServer, Is.True);
+                Assert.That(ChatGuardSdk.Client.Settings.BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
+
+                ChatGuardSdk.Configure("cg_test_x", "https://proxy.example.com/");
+                Assert.That(ChatGuardSdk.Client.Settings.BaseUrl, Is.EqualTo("https://proxy.example.com"));
+            }
+            finally
+            {
+                ChatGuardSdk.Reset();
+            }
+
+            // A config asset saved before 0.4.0 with an empty URL gets the default as well.
+            var config = UnityEngine.ScriptableObject.CreateInstance<ChatGuardConfig>();
+            try
+            {
+                config.apiKey = "cg_test_x";
+                config.baseUrl = string.Empty;
+                var fromAsset = new ChatGuardClient(config);
+                Assert.That(fromAsset.HasServer, Is.True);
+                Assert.That(fromAsset.Settings.BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
             }
             finally
             {

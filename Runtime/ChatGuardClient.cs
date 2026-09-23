@@ -40,7 +40,8 @@ namespace ChatGuard.Unity
         /// <summary>
         /// Primary constructor: builds a client from plain settings, no Resources asset involved. The settings are
         /// validated (<see cref="ChatGuardSettings.Validate"/>) and copied, so changing the object afterwards has no
-        /// effect on this client. An empty key or base URL gives a local-filter-only client.
+        /// effect on this client. An empty key gives a local-filter-only client; a blank base URL means
+        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/>.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
         /// <exception cref="ArgumentException">The timeout is not a positive finite number of seconds (at most <see cref="ChatGuardSettings.MaxTimeoutSeconds"/>) or the base URL is not an absolute http/https URL.</exception>
@@ -54,7 +55,7 @@ namespace ChatGuard.Unity
             settings.Validate();
             _settings = settings.Clone();
             _settings.ApiKey = _settings.ApiKey ?? string.Empty;
-            _settings.BaseUrl = (_settings.BaseUrl ?? string.Empty).TrimEnd('/');
+            _settings.BaseUrl = string.IsNullOrWhiteSpace(_settings.BaseUrl) ? ChatGuardSettings.DefaultBaseUrl : _settings.BaseUrl.Trim().TrimEnd('/');
             _settings.DefaultLanguage = _settings.DefaultLanguage ?? string.Empty;
             _settings.ChannelType = _settings.ChannelType ?? string.Empty;
             _baseUrl = _settings.BaseUrl;
@@ -87,15 +88,16 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Positional shorthand for <see cref="ChatGuardClient(ChatGuardSettings)"/>; the defaults are the same as
-        /// <see cref="ChatGuardSettings"/>, including <paramref name="ageRating"/> "16+" (pass null or empty to send
-        /// no <c>channel.age_rating</c>).
+        /// Positional shorthand for <see cref="ChatGuardClient(ChatGuardSettings)"/>: <c>new ChatGuardClient(apiKey)</c>
+        /// is enough. The defaults are the same as <see cref="ChatGuardSettings"/>, including
+        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/> for a null or empty <paramref name="baseUrl"/> and
+        /// <paramref name="ageRating"/> "16+" (pass null or empty to send no <c>channel.age_rating</c>).
         /// </summary>
-        public ChatGuardClient(string apiKey, string baseUrl, float timeoutSeconds = 2f, OfflineBehavior offline = OfflineBehavior.LocalFilter, bool localWhenDegraded = true, Thresholds? thresholds = null, string language = "en", string channelType = "global", string? ageRating = "16+")
+        public ChatGuardClient(string apiKey, string? baseUrl = null, float timeoutSeconds = 2f, OfflineBehavior offline = OfflineBehavior.LocalFilter, bool localWhenDegraded = true, Thresholds? thresholds = null, string language = "en", string channelType = "global", string? ageRating = "16+")
             : this(new ChatGuardSettings
             {
                 ApiKey = apiKey ?? string.Empty,
-                BaseUrl = baseUrl ?? string.Empty,
+                BaseUrl = baseUrl ?? ChatGuardSettings.DefaultBaseUrl,
                 TimeoutSeconds = timeoutSeconds,
                 OfflineBehavior = offline,
                 LocalFilterWhenDegraded = localWhenDegraded,
@@ -108,7 +110,8 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// A copy of the settings this client runs with (a trailing slash is trimmed from the base URL;
+        /// A copy of the settings this client runs with (the base URL is the one requests go to: a blank one reads as
+        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/> and a trailing slash is trimmed;
         /// <see cref="ChatGuardSettings.Thresholds"/> stays null when the built-in defaults are used), for diagnostics
         /// such as logging the base URL and offline behaviour at startup. It contains the API key, so do not log it
         /// verbatim. Changing the copy does not affect the client.
@@ -175,10 +178,13 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>A cg_live_ key in a player build is a leaked server key; publishable keys are cg_pub_.</summary>
+        /// <summary>
+        /// A cg_live_ key in a player build is a leaked server key; publishable keys are cg_pub_. Dedicated Server builds
+        /// may hold one (the build check allows them too), so they don't warn.
+        /// </summary>
         private static void WarnIfServerKeyInBuild(string apiKey)
         {
-            if (s_warnedLiveKey || !apiKey.StartsWith("cg_live_", StringComparison.Ordinal) || UnityEngine.Application.isEditor)
+            if (s_warnedLiveKey || !apiKey.StartsWith("cg_live_", StringComparison.Ordinal) || UnityEngine.Application.isEditor || IsDedicatedServerBuild)
             {
                 return;
             }
@@ -187,8 +193,21 @@ namespace ChatGuard.Unity
             UnityEngine.Debug.LogWarning("Chat Guard: a cg_live_ server key is being used in a player build. Ship a cg_pub_ publishable key in clients (moderate-only, per-player limits) or move moderation to your server or relay.");
         }
 
-        /// <summary>True when both an API key and a base URL are set; otherwise every call is answered by the offline fallback.</summary>
-        public bool HasServer => _settings.ApiKey.Length > 0 && _baseUrl.Length > 0;
+        /// <summary>True in Dedicated Server builds (the UNITY_SERVER define). A property, not a constant, so the check above compiles without unreachable-code warnings.</summary>
+        private static bool IsDedicatedServerBuild
+        {
+            get
+            {
+#if UNITY_SERVER
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
+
+        /// <summary>True when an API key is set; without one every call is answered by the offline fallback.</summary>
+        public bool HasServer => _settings.ApiKey.Length > 0;
 
         /// <summary>
         /// Starts one moderation call. Yield the returned operation in a coroutine, poll
@@ -244,7 +263,7 @@ namespace ChatGuard.Unity
 
             if (!HasServer)
             {
-                operation.Complete(Fallback(request, DegradedReason.Offline, "no API key or base URL configured"));
+                operation.Complete(Fallback(request, DegradedReason.Offline, "no API key configured"));
                 return operation;
             }
 

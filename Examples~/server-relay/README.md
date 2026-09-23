@@ -5,10 +5,12 @@ must still stay off player machines. Run this tiny ASP.NET service next to your 
 clients call it instead of Chat Guard directly.
 
 ```bash
-CHATGUARD_API_KEY=cg_live_... CHATGUARD_BASE_URL=https://api.example.com RELAY_SHARED_SECRET=change-me \
+CHATGUARD_API_KEY=cg_live_... RELAY_SHARED_SECRET=change-me \
   dotnet run --project Examples~/server-relay
 curl -X POST localhost:5000/chat -H 'Content-Type: application/json' -H 'X-Relay-Secret: change-me' \
   -d '{"message":"you idiot","author_id":"p1","channel_type":"global","language":"en"}'
 ```
 
-Replace the shared-secret check with your own player authentication before shipping.
+The relay forwards to the Chat Guard API (`https://api.chatguard.dev`); set `CHATGUARD_BASE_URL` only
+to send requests somewhere else. Replace the shared-secret check with your own player authentication
+before shipping.

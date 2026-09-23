@@ -2,14 +2,15 @@ using System.Net.Http.Headers;
 using System.Text.Json.Serialization;
 
 // Minimal relay for client-authoritative games (no dedicated server): clients never see the Chat Guard key.
-//   CHATGUARD_API_KEY=cg_live_... CHATGUARD_BASE_URL=https://api.example.com RELAY_SHARED_SECRET=... dotnet run
+//   CHATGUARD_API_KEY=cg_live_... RELAY_SHARED_SECRET=... dotnet run
+// CHATGUARD_BASE_URL is optional and defaults to the Chat Guard API, https://api.chatguard.dev.
 // Clients send  POST /chat  { "message", "author_id", "channel_type", "language" }  with header X-Relay-Secret.
 // In a real game, replace the shared secret with your session/auth token validation and forward only
 // after checking the sender is who they claim to be.
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 string apiKey = builder.Configuration["CHATGUARD_API_KEY"] ?? throw new InvalidOperationException("CHATGUARD_API_KEY is required");
-string baseUrl = (builder.Configuration["CHATGUARD_BASE_URL"] ?? "http://localhost:5000").TrimEnd('/');
+string baseUrl = (builder.Configuration["CHATGUARD_BASE_URL"] ?? "https://api.chatguard.dev").TrimEnd('/');
 string sharedSecret = builder.Configuration["RELAY_SHARED_SECRET"] ?? string.Empty;
 
 builder.Services.AddHttpClient("chatguard", http =>
