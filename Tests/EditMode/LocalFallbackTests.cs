@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections;
+using System.Threading;
 using ChatGuard.Core;
 using ChatGuard.Unity;
 using NUnit.Framework;
@@ -304,6 +305,96 @@ namespace ChatGuard.Tests
 
             Assert.That(awaited, Is.Null);
             Assert.That(error, Is.TypeOf<OperationCanceledException>(), "awaiting a cancelled operation must throw");
+            Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(CancellationToken.None), "Cancel() is not a token");
+        }
+
+        [Test]
+        public void Token_AlreadyCancelled_ReturnsCancelledOperationWithoutSending()
+        {
+            var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            int completedCalls = 0;
+            ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"), _ => completedCalls++, cts.Token);
+            Assert.That(op.IsDone, Is.True);
+            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.Result, Is.Null);
+            Assert.That(completedCalls, Is.EqualTo(0));
+
+            // Without a server too: a cancelled token wins over the synchronous offline fallback.
+            ModerationOperation offline = new ChatGuardClient(string.Empty, string.Empty).Moderate(new ModerationRequest("you idiot"), cts.Token);
+            Assert.That(offline.IsCancelled, Is.True);
+            Assert.That(offline.Result, Is.Null);
+
+            Exception? error = null;
+            AwaitInto(op, _ => { }, ex => error = ex);
+            Assert.That(error, Is.TypeOf<OperationCanceledException>());
+            Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(cts.Token));
+        }
+
+        [Test]
+        public void Token_CancelledWhileInFlight_EndsTheOperationLikeCancel()
+        {
+            var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
+            using var cts = new CancellationTokenSource();
+            int completedCalls = 0;
+            ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"), _ => completedCalls++, cts.Token);
+            Assert.That(op.IsDone, Is.False, "a network request must not complete synchronously");
+
+            ModerationResult? awaited = null;
+            Exception? error = null;
+            AwaitInto(op, r => awaited = r, ex => error = ex);
+            cts.Cancel();
+
+            Assert.That(op.IsDone, Is.True, "a token cancelled on the main thread ends the operation right away");
+            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.Result, Is.Null);
+            Assert.That(completedCalls, Is.EqualTo(0));
+            Assert.That(awaited, Is.Null);
+            Assert.That(error, Is.TypeOf<OperationCanceledException>());
+            Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(cts.Token));
+        }
+
+        [Test]
+        public void Token_CancelledAfterCompletion_ChangesNothing()
+        {
+            var client = new ChatGuardClient(string.Empty, string.Empty);
+            using var cts = new CancellationTokenSource();
+            ModerationOperation op = client.Moderate(new ModerationRequest("you idiot"), cts.Token);
+            Assert.That(op.IsDone, Is.True);
+            ModerationResult? result = op.Result;
+            Assert.That(result, Is.Not.Null);
+
+            cts.Cancel();
+            Assert.That(op.IsCancelled, Is.False);
+            Assert.That(op.Result, Is.SameAs(result));
+        }
+
+        [Test]
+        public void StaticApi_TokenOverloads()
+        {
+            ChatGuardSdk.Reset();
+            try
+            {
+                ChatGuardSdk.Configure(new ChatGuardSettings { OfflineBehavior = OfflineBehavior.BlockAll });
+                using var live = new CancellationTokenSource();
+                ModerationResult? viaCallback = null;
+                Assert.That(ChatGuardSdk.Moderate("gg", "p1", live.Token).Result!.Action, Is.EqualTo(ModerationAction.Block));
+                ChatGuardSdk.Moderate("gg", "p1", r => viaCallback = r, live.Token);
+                Assert.That(viaCallback, Is.Not.Null);
+                Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), live.Token).Result, Is.Not.Null);
+                Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), _ => { }, live.Token).Result, Is.Not.Null);
+
+                using var cancelled = new CancellationTokenSource();
+                cancelled.Cancel();
+                Assert.That(ChatGuardSdk.Moderate("gg", "p1", cancelled.Token).IsCancelled, Is.True);
+                Assert.That(ChatGuardSdk.Moderate("gg", "p1", _ => Assert.Fail("callback after cancel"), cancelled.Token).IsCancelled, Is.True);
+                Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), cancelled.Token).IsCancelled, Is.True);
+            }
+            finally
+            {
+                ChatGuardSdk.Reset();
+            }
         }
 
         /// <summary>Awaits the operation and hands the outcome to a callback; catches everything so nothing escapes the async void.</summary>

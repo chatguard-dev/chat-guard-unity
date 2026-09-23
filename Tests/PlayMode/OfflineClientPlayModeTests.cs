@@ -1,6 +1,9 @@
 #nullable enable
 using System;
 using System.Collections;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
 using ChatGuard.Core;
 using ChatGuard.Unity;
 using NUnit.Framework;
@@ -108,6 +111,52 @@ namespace ChatGuard.Tests
             Assert.That(awaited!.Source, Is.EqualTo(ResultSource.Local));
             Assert.That(awaited.Degraded, Is.True);
             Assert.That(awaited.Action, Is.EqualTo(ModerationAction.Hide));
+        }
+
+        // CancelAfter timers and other threads cancel tokens off the main thread; UnityWebRequest.Abort and the code after
+        // await must still run on the main thread (an off-thread Abort would log an exception and fail this test).
+        [UnityTest]
+        public IEnumerator Token_CancelledOnAnotherThread_TakesEffectOnTheMainThread()
+        {
+            // Accepts the connection (the OS does, from the backlog) and never answers, so the request stays in flight.
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            try
+            {
+                int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                var client = new ChatGuardClient(TestKey, "http://127.0.0.1:" + port, timeoutSeconds: 10f);
+                using var cts = new CancellationTokenSource();
+                ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"), cts.Token);
+                int mainThread = Thread.CurrentThread.ManagedThreadId;
+                int resumedOn = -1;
+                Exception? error = null;
+                AwaitInto(op, _ => { }, ex =>
+                {
+                    error = ex;
+                    resumedOn = Thread.CurrentThread.ManagedThreadId;
+                });
+
+                var canceller = new Thread(() => cts.Cancel());
+                canceller.Start();
+                canceller.Join();
+                Assert.That(op.IsDone, Is.False, "the cancel must wait for the main thread instead of running on the canceller");
+
+                float deadline = Time.realtimeSinceStartup + 5f;
+                while (!op.IsDone && Time.realtimeSinceStartup < deadline)
+                {
+                    yield return null;
+                }
+
+                Assert.That(op.IsCancelled, Is.True, "the cancel did not reach the main thread within 5 s");
+                Assert.That(op.Result, Is.Null);
+                Assert.That(error, Is.TypeOf<OperationCanceledException>());
+                Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(cts.Token));
+                Assert.That(resumedOn, Is.EqualTo(mainThread), "code after await must run on the main thread");
+            }
+            finally
+            {
+                listener.Stop();
+            }
         }
 
         /// <summary>Awaits the operation and hands the outcome to a callback; catches everything so nothing escapes the async void.</summary>

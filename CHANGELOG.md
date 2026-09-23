@@ -2,10 +2,22 @@
 
 ## Unreleased
 
-Performance work with no API changes. Normalized text, JSON bodies and results are identical to 0.2.1, checked by
-differential tests on .NET and on Unity 2021.3's Mono; the Basic Chat sample fix at the end is the only intended
-behaviour change. Figures are from Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
+Cancellation tokens for `Moderate` (first entry), then performance work with no API changes. Normalized text, JSON
+bodies and results are identical to 0.2.1, checked by differential tests on .NET and on Unity 2021.3's Mono; apart
+from the new overloads, the Basic Chat sample fix at the end is the only intended behaviour change. Figures are from
+Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
 
+- `Moderate` takes an optional `CancellationToken`: `ChatGuardSdk.Moderate(text, playerId, token)` and
+  `ChatGuardSdk.Moderate(text, playerId, onCompleted, token)`, the same two with a `ModerationRequest`, and
+  `ChatGuardClient.Moderate(request, token)` / `Moderate(request, onCompleted, token)`. Cancelling the token does what
+  `op.Cancel()` does: the request is aborted, `onCompleted` and `Completed` are not invoked, and `await` throws
+  `OperationCanceledException` carrying the token (after `op.Cancel()` it carries `CancellationToken.None`). A token
+  that is already cancelled gives back a cancelled operation without sending a request. The SDK stops listening to the
+  token when the operation finishes, so one long-lived token can serve every message, and a token cancelled on
+  another thread takes effect on the main thread. Works with `destroyCancellationToken` (Unity 2022.2+) and UniTask's
+  `GetCancellationTokenOnDestroy()`. 0.2.0 dropped tokens together with `ModerateAsync`; a token needs no thread or
+  timer, so the SDK still uses no `System.Threading.Tasks` and tokens work on WebGL (`CancelAfter` is the exception:
+  it needs a timer thread; use `TimeoutSeconds` for timeouts).
 - Word lists load lazily. Each language is parsed on first use instead of all eight at once, and the generated
   list data is only created for the languages that are parsed. Clients with `OfflineBehavior.AllowAll` or
   `BlockAll` never load the lists. Local-filter clients parse their default language (or the fallback language)

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections;
+using System.Threading;
 using UnityEngine;
 
 namespace ChatGuard.Unity
@@ -100,6 +101,33 @@ namespace ChatGuard.Unity
         public static ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted = null)
         {
             return Client.Moderate(request, onCompleted);
+        }
+
+        /// <summary>
+        /// Moderates one message that <paramref name="cancellationToken"/> can end early, the usual form with <c>await</c>:
+        /// <c>ModerationResult result = await ChatGuardSdk.Moderate(text, playerId, destroyCancellationToken);</c>.
+        /// Cancelling the token is the same as <see cref="ModerationOperation.Cancel"/>; see
+        /// <see cref="ChatGuardClient.Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/>.
+        /// </summary>
+        public static ModerationOperation Moderate(string message, string? authorId, CancellationToken cancellationToken)
+        {
+            return Client.Moderate(new ModerationRequest(message, authorId), null, cancellationToken);
+        }
+
+        /// <summary>Callback form with a token: <paramref name="onCompleted"/> is not invoked once the token is cancelled.</summary>
+        public static ModerationOperation Moderate(string message, string? authorId, Action<ModerationResult>? onCompleted, CancellationToken cancellationToken)
+        {
+            return Client.Moderate(new ModerationRequest(message, authorId), onCompleted, cancellationToken);
+        }
+
+        public static ModerationOperation Moderate(ModerationRequest request, CancellationToken cancellationToken)
+        {
+            return Client.Moderate(request, null, cancellationToken);
+        }
+
+        public static ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted, CancellationToken cancellationToken)
+        {
+            return Client.Moderate(request, onCompleted, cancellationToken);
         }
 
         /// <summary>For <c>StartCoroutine</c>: waits for the result and then invokes <paramref name="onCompleted"/>.</summary>

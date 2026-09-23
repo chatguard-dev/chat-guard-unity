@@ -192,13 +192,64 @@ public async void OnPlayerMessage(string playerId, string text)
   and networking. When the operation already finished (offline fallback), `await` does not suspend:
   the code after it runs inline, right after `Moderate` returns and before your async method returns
   to its caller. Only the `onCompleted` callback form runs user code before `Moderate` itself returns.
-- **Cancellation throws.** Awaiting an operation that was ended with `Cancel()` throws
+- **Cancellation throws.** Awaiting an operation that was ended with `Cancel()` or by its
+  cancellation token (see [Cancellation tokens](#cancellation-tokens)) throws
   `OperationCanceledException`; catch it where you cancel, for example when a chat window is closed
   while a message is in flight. In an `async void` method an uncaught exception is reported through
   Unity's synchronization context, i.e. logged like any other unhandled exception.
 - **WebGL works** because nothing uses threads or timers: the awaiter is plain callbacks on the
   main thread. Your own code around the `await` should stay away from `Task.Run` / `Task.Delay` on
   that platform for the reasons in [Why there are no Tasks](#why-there-are-no-tasks).
+
+### Cancellation tokens
+
+Every `Moderate` has an overload that takes a `CancellationToken`, so a message in flight stops
+together with whatever owns it:
+
+```csharp
+public sealed class ChatWindow : MonoBehaviour
+{
+    public async void Send(string playerId, string text)
+    {
+        try
+        {
+            ModerationResult result = await ChatGuardSdk.Moderate(text, playerId, destroyCancellationToken);
+            if (result.ShouldDeliver)
+                AppendLine(playerId, text);
+        }
+        catch (OperationCanceledException)
+        {
+            // The window was destroyed while the message was in flight: nothing to show.
+        }
+    }
+}
+```
+
+- **The overloads.** `ChatGuardSdk.Moderate(text, playerId, token)` and
+  `ChatGuardSdk.Moderate(text, playerId, onCompleted, token)`, the same two with a
+  `ModerationRequest`, and `client.Moderate(request, token)` / `client.Moderate(request, onCompleted,
+  token)` on the instance API. `destroyCancellationToken` exists from Unity 2022.2; on 2021.3 cancel
+  your own `CancellationTokenSource` in `OnDestroy`, and with UniTask use
+  `this.GetCancellationTokenOnDestroy()`.
+- **Cancelling the token is the same as `op.Cancel()`.** The request is aborted, `onCompleted` and
+  `Completed` are not invoked, and `await` throws `OperationCanceledException` whose
+  `CancellationToken` is your token. A token that is already cancelled gives back a cancelled
+  operation without sending anything; one cancelled after the result arrived changes nothing.
+- **One token can serve every message.** The SDK stops listening to the token when the operation
+  finishes, so a long-lived token does not keep finished operations in memory.
+- **Cancel on the main thread where you can** (`destroyCancellationToken` is cancelled there). A
+  token cancelled on another thread still aborts the request on the main thread, when Unity next
+  runs posted work (normally the next frame), so the code after `await` stays on the main thread.
+- **Timeouts are `TimeoutSeconds`, not `CancelAfter`.** `CancellationTokenSource.CancelAfter` and
+  the `CancellationTokenSource(TimeSpan)` constructor need a timer thread, which WebGL does not
+  have, so they do not fire there.
+- **With UniTask**, pass the token and await as usual:
+  `await ChatGuardSdk.Moderate(text, playerId, this.GetCancellationTokenOnDestroy())`. Avoid
+  `op.ToUniTask()` and `op.WithCancellation(token)`: UniTask adds those to every coroutine object,
+  and for the operation they return a `UniTask` without the result, check it only once per frame,
+  and a cancelled token does not abort the request. Need a `UniTask<ModerationResult>`, for
+  `UniTask.WhenAll` for example? Wrap it:
+  `async UniTask<ModerationResult> ModerateAsync(ModerationOperation op) => await op;`.
 
 ## Interception points per networking stack
 
@@ -260,14 +311,16 @@ web build.
 
 ## Why there are no Tasks
 
-WebGL has no threads. Anything built on `System.Threading.Tasks` that relies on the thread pool or
-on timers (`Task.Run`, `Task.Delay`, `CancellationTokenSource.CancelAfter`, `ConfigureAwait(false)`)
-either throws or never completes there. The SDK therefore exposes no `Task`s at all: `Moderate`
-returns a `ModerationOperation` that you can yield (the same shape as `UnityWebRequestAsyncOperation`),
+WebGL has no threads. Anything that relies on the thread pool or on timers (`Task.Run`,
+`Task.Delay`, `ConfigureAwait(false)`, `CancellationTokenSource.CancelAfter`) either throws or never
+completes there. The SDK therefore exposes no `Task`s at all: `Moderate` returns a
+`ModerationOperation` that you can yield (the same shape as `UnityWebRequestAsyncOperation`),
 `await` (it has its own awaiter, see [Async/await without Tasks](#asyncawait-without-tasks)) or drive
 with callbacks, `ModerateCoroutine` wraps it for `StartCoroutine`, and everything completes on the
 main thread. That works identically on every platform, WebGL included. Not having `Task`s does not
-mean giving up `await`; it only means the SDK never touches the thread pool or timers.
+mean giving up `await`; it only means the SDK never touches the thread pool or timers. Cancellation
+tokens are fine: `CancellationToken` lives in `System.Threading`, and cancelling one only runs
+callbacks, so `Moderate` accepts one (see [Cancellation tokens](#cancellation-tokens)).
 
 ## Behaviour when the server cannot answer
 

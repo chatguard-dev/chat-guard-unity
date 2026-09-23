@@ -18,8 +18,9 @@ namespace ChatGuard.Unity
     /// Plain C# client for POST /v1/moderate built on UnityWebRequest. Not a MonoBehaviour: create one per
     /// server/session and reuse it. Configure it from code with a <see cref="ChatGuardSettings"/> (no asset needed)
     /// or from a <see cref="ChatGuardConfig"/> asset. Falls back to the shared local filter according to
-    /// <see cref="ChatGuardSettings.OfflineBehavior"/>. No Tasks or threads: <see cref="Moderate"/> returns a
-    /// <see cref="ModerationOperation"/> that completes on the main thread, on every platform including WebGL.
+    /// <see cref="ChatGuardSettings.OfflineBehavior"/>. No Tasks or threads: <c>Moderate</c> returns a
+    /// <see cref="ModerationOperation"/> that completes on the main thread, on every platform including WebGL, and
+    /// optionally takes a <see cref="CancellationToken"/> that ends it early.
     /// </summary>
     public sealed class ChatGuardClient
     {
@@ -147,11 +148,38 @@ namespace ChatGuard.Unity
 
         /// <summary>
         /// Starts one moderation call. Yield the returned operation in a coroutine, poll
-        /// <see cref="ModerationOperation.IsDone"/>, or pass <paramref name="onCompleted"/>. Without a configured server
-        /// (or when the request cannot be created) the operation completes synchronously with the offline fallback, so
-        /// <paramref name="onCompleted"/> may run before this method returns. Always completes on the main thread.
+        /// <see cref="ModerationOperation.IsDone"/>, <c>await</c> it, or pass <paramref name="onCompleted"/>. Without a
+        /// configured server (or when the request cannot be created) the operation completes synchronously with the
+        /// offline fallback, so <paramref name="onCompleted"/> may run before this method returns. Always completes on the
+        /// main thread.
         /// </summary>
         public ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted = null)
+        {
+            return Moderate(request, onCompleted, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> without a callback, the
+        /// usual form with <c>await</c>: <c>ModerationResult result = await client.Moderate(request, token);</c>.
+        /// </summary>
+        public ModerationOperation Moderate(ModerationRequest request, CancellationToken cancellationToken)
+        {
+            return Moderate(request, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Starts one moderation call that <paramref name="cancellationToken"/> can end early. Cancelling the token does
+        /// what <see cref="ModerationOperation.Cancel"/> does: the request is aborted, <paramref name="onCompleted"/> and
+        /// <see cref="ModerationOperation.Completed"/> are not invoked, and <c>await</c> throws
+        /// <see cref="OperationCanceledException"/> carrying the token. A token that is already cancelled gives back a
+        /// cancelled operation without sending anything or computing a fallback. The SDK stops listening to the token
+        /// when the operation finishes, so one long-lived token (a component's <c>destroyCancellationToken</c>) can serve
+        /// every message. Cancel it on the main thread where you can; a token cancelled on another thread takes effect on
+        /// the main thread, when Unity next runs posted work. For timeouts use
+        /// <see cref="ChatGuardSettings.TimeoutSeconds"/>: <c>CancelAfter</c> relies on a timer thread and never fires
+        /// on WebGL. Otherwise the same as <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>.
+        /// </summary>
+        public ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted, CancellationToken cancellationToken)
         {
             if (request == null)
             {
@@ -159,6 +187,12 @@ namespace ChatGuard.Unity
             }
 
             var operation = new ModerationOperation(request);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                operation.CancelOn(cancellationToken); // ends it now: nothing is sent and onCompleted never runs
+                return operation;
+            }
+
             if (onCompleted != null)
             {
                 operation.Completed += onCompleted;
@@ -168,6 +202,13 @@ namespace ChatGuard.Unity
             {
                 operation.Complete(Fallback(request, DegradedReason.Offline, "no API key or base URL configured"));
                 return operation;
+            }
+
+            // Registered before the request exists, so a cancel from here on finds it attached and aborts it.
+            operation.CancelOn(cancellationToken);
+            if (operation.IsDone)
+            {
+                return operation; // the token was cancelled on another thread just before it was registered
             }
 
             UnityWebRequest? uwr = null;
@@ -202,7 +243,7 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Coroutine form for <c>StartCoroutine</c>: starts <see cref="Moderate"/>, waits for it, then invokes
+        /// Coroutine form for <c>StartCoroutine</c>: starts <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>, waits for it, then invokes
         /// <paramref name="onCompleted"/> with the result (not invoked when the operation was cancelled).
         /// </summary>
         public IEnumerator ModerateCoroutine(ModerationRequest request, Action<ModerationResult> onCompleted)
