@@ -10,14 +10,15 @@ namespace ChatGuard.Unity
     /// <see cref="ChatGuardSdk.Configure(ChatGuardSettings)"/> or <see cref="ChatGuardClient(ChatGuardSettings)"/>;
     /// the defaults are the same as the asset's. Leaving <see cref="ApiKey"/> or <see cref="BaseUrl"/> empty means
     /// "local filter only": every message is answered by the built-in dictionary filter and nothing is sent.
-    /// A client build may only contain a publishable (<c>cg_pub_</c>) or test (<c>cg_test_</c>) key; <c>cg_live_</c>
-    /// server keys belong on your game server or relay (see README, "Where the key lives").
+    /// A client build ships a publishable (<c>cg_pub_</c>) key; test (<c>cg_test_</c>) keys are for the Editor and
+    /// development builds, and <c>cg_live_</c> server keys belong on your game server or relay (see README, "Where the
+    /// key lives").
     /// </summary>
     public sealed class ChatGuardSettings
     {
         /// <summary>
         /// API key sent as the bearer token. Empty (the default) disables the server and uses the local filter only.
-        /// Only <c>cg_pub_</c> or <c>cg_test_</c> keys may ship in a client build.
+        /// Client builds ship a <c>cg_pub_</c> key; <c>cg_test_</c> keys only in the Editor and development builds.
         /// </summary>
         public string ApiKey { get; set; } = string.Empty;
 

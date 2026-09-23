@@ -32,8 +32,10 @@ key that reaches a player at runtime logs a warning. Three options, in order of 
   a modified client can ignore or skip them, and anyone can extract the key and send their own
   messages; a server or relay should still moderate when one exists. `ChatGuardClient` logs a
   warning once if a `cg_live_` key is found in a player build.
-- **Editor and tests**: use a `cg_test_` key (not metered, 1,000 requests/day). A WebGL build
-  running in a browser needs a `cg_pub_` key, even for testing (see [WebGL builds](#webgl-builds)).
+- **Editor and tests**: use a `cg_test_` key (not metered; 1,000 requests a day per organization,
+  shared with the dashboard's test panel). Test keys are for the Editor and development builds: a
+  release build that holds one in a `ChatGuardConfig` fails. A WebGL build running in a browser
+  needs a `cg_pub_` key, even for testing (see [WebGL builds](#webgl-builds)).
 
 The `ChatGuardConfig` asset has an empty key and an empty base URL by default (local filter only
 until both are filled in). Never commit a config asset that contains a live key; publishable and
@@ -42,8 +44,8 @@ test keys are safe to commit only if you accept that they are public.
 ## 5-minute integration
 
 1. Create a config: **Assets → Create → Chat Guard → Config**. Set `baseUrl` and the key (a
-   `cg_pub_` or `cg_test_` key in client builds, only `cg_pub_` in WebGL; `cg_live_` only on the
-   server). Pick
+   `cg_pub_` key in client builds, a `cg_test_` key only in the Editor and development builds, only
+   `cg_pub_` in WebGL; `cg_live_` only on the server). Pick
    `offlineBehavior` (`LocalFilter` is the default). No asset at all is fine too, see
    [Configure from code](#configure-from-code-no-asset-needed).
 2. Save it as **`Assets/Resources/ChatGuardConfig.asset`** so the static API finds it by itself, then
@@ -135,7 +137,7 @@ using ChatGuard.Unity;
 
 ChatGuardSdk.Configure(new ChatGuardSettings
 {
-    ApiKey = "cg_pub_...",                  // cg_pub_ or cg_test_ in a client build, never cg_live_
+    ApiKey = "cg_pub_...",                  // cg_pub_ in a client build (cg_test_ only in development builds), never cg_live_
     BaseUrl = "https://api.chatguard.dev",
     DefaultLanguage = "en",
     ChannelType = "team",

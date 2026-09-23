@@ -11,7 +11,7 @@ readable description is `openapi.json` next to this file (also served at `https:
   | Kind | Prefix | May call | Metered | Notes |
   |---|---|---|---|---|
   | Server | `cg_live_` | all `/v1` endpoints | yes (model verdicts) | keep on your server or relay |
-  | Test | `cg_test_` | all `/v1` endpoints | no | capped at 1,000 requests per UTC day |
+  | Test | `cg_test_` | all `/v1` endpoints | no | 1,000 requests per organization per UTC day, shared by all test keys and the dashboard test panel; for the Editor and development builds |
   | Publishable | `cg_pub_` | `POST /v1/moderate`, `GET /v1/quota` only (others return 403) | yes (model verdicts) | safe to ship in a client build; `author.id` required; lower per-key limit plus a per-author bucket; results on a player's device are advisory |
 - Dashboard endpoints (`/api/*`): `Authorization: Bearer <JWT>` obtained from `POST /api/auth/refresh`
   after an OAuth sign-in. Browser origins are restricted to the dashboard (CORS).
@@ -84,7 +84,8 @@ Response:
 - `severity`: 0–3. `target`: null when the model was not consulted.
 - `degraded`: true when the model could not be consulted (`degraded_reason` is `quota`,
   `upstream`, `upstream_rate_limit` or `timeout`) and the local dictionary filter answered
-  instead. Local verdicts are 0 or 1 and `model` is `local-filter/<word-list version>`. A
+  instead. `upstream_rate_limit` also covers the shared model allowance of Free organizations
+  and of test traffic running out for the minute (see [Rate limits](#rate-limits)). Local verdicts are 0 or 1 and `model` is `local-filter/<word-list version>`. A
   block-rule hit is also answered locally, but with `degraded: false`, `target: null` and the same
   `local-filter/…` model. A response carries a model verdict exactly when `model` does not start
   with `local-filter/`; those are the responses counted toward the quota (except on test keys and
@@ -96,11 +97,12 @@ Response:
   one only when the response carries a model verdict (a fresh Jev evaluation or a hit in the
   10-minute verdict cache). Not counted: block-rule hits, degraded answers, test keys, idempotent
   `request_id` replays and rejected requests; see "What counts toward the quota" below. For test
-  keys `quota` shows the daily cap instead.
+  keys `quota` shows the organization's daily test allowance instead.
 
 Errors: `400` validation problem (`errors` map), `401` invalid key, `403` server or test key sent
-from a browser (see [Browser clients](#browser-clients-cors)), `429` per-key rate limit or
-test-key cap (`Retry-After` header and `retry_after` seconds), `5xx` unexpected.
+from a browser (see [Browser clients](#browser-clients-cors)), `429` per-key or organization
+rate limit or the daily test allowance (`Retry-After` header and `retry_after` seconds), `5xx`
+unexpected.
 
 ## GET /v1/quota
 
@@ -162,6 +164,18 @@ Publishable keys additionally get a bucket per `(key, author.id)` of 2 req/s wit
 (`Moderation:PubPerAuthorRps/Burst`); a `429` names the author bucket in `detail`. A coarse per-IP
 limit of 1,000 req/s applies per instance.
 
+Free organizations also have one limit over all their keys together, 1 req/s with burst 20
+(`Plans:Tiers:free:OrgRateLimitRps/Burst`), so extra keys do not add rate; a `429` names the
+organization in `detail`. Test keys and the dashboard test panel share 1,000 requests per
+organization per UTC day (`Moderation:TestDailyCap`), however many keys and projects there are.
+
+Fresh model calls also draw on shared per-minute allowances: 150 per minute for all Free
+organizations together (`Moderation:FreeLanePerMinute`) and 60 per minute for all test keys and
+test panels together (`Moderation:TestLanePerMinute`). Paid organizations have no such allowance.
+When one runs out, the message is answered by the local filter with `degraded: true` and
+`degraded_reason: "upstream_rate_limit"`, as when the model provider's own limit is reached; such
+answers are not counted toward the quota. Verdict-cache hits use no allowance.
+
 ## Dashboard API (summary)
 
 All under `/api`, JWT required, JSON:
@@ -169,7 +183,7 @@ All under `/api`, JWT required, JSON:
 | Method and path | Purpose |
 |---|---|
 | `GET /api/auth/providers`, `GET /api/auth/login/{google\|github}`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/me` | OAuth sign-in and session |
-| `GET/POST /api/orgs`, `GET/PATCH /api/orgs/{id}`, `GET /api/orgs/{id}/usage` | organizations |
+| `GET/POST /api/orgs`, `GET/PATCH /api/orgs/{id}`, `GET /api/orgs/{id}/usage` | organizations; `POST` answers `409` (`code: free_org_limit`) while you already own a Free organization, and `429` after 3 new organizations in 24 hours |
 | `GET/POST /api/orgs/{id}/members`, `PATCH/DELETE /api/orgs/{id}/members/{mid}` | members and invitations |
 | `GET/POST /api/orgs/{id}/projects` | projects |
 | `GET/PATCH/DELETE /api/projects/{id}` | project settings, thresholds, evidence toggle |

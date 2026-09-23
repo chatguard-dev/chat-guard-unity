@@ -3,6 +3,7 @@
   "rootNamespace": "ChatGuard.Tests",
   "references": [
     "ChatGuard.Runtime",
+    "ChatGuard.Editor",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"
   ],

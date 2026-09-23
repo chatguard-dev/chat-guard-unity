@@ -72,14 +72,14 @@ namespace ChatGuard.Unity
     /// Optional inspector-editable settings asset for <see cref="ChatGuardClient"/>. Create one via Assets → Create →
     /// Chat Guard → Config and save it as <c>Assets/Resources/ChatGuardConfig.asset</c> for the zero-code path; the same
     /// options are available from code through <see cref="ChatGuardSettings"/> (<see cref="ToSettings"/> converts).
-    /// A client build may only contain a publishable (cg_pub_) or test (cg_test_) key; cg_live_ server keys
-    /// belong on your game server or relay (see README, "Where the key lives").
+    /// A client build ships a publishable (cg_pub_) key; test (cg_test_) keys are for the Editor and development builds,
+    /// and cg_live_ server keys belong on your game server or relay (see README, "Where the key lives").
     /// </summary>
     [CreateAssetMenu(menuName = "Chat Guard/Config", fileName = "ChatGuardConfig")]
     public sealed class ChatGuardConfig : ScriptableObject
     {
         [Header("Connection")]
-        [Tooltip("Only cg_pub_ (publishable) or cg_test_ keys may ship in a client build. cg_live_ server keys stay on your server or relay. Empty = local filter only.")]
+        [Tooltip("Client builds ship a cg_pub_ (publishable) key; cg_test_ keys only in the Editor and development builds; cg_live_ server keys stay on your server or relay. Empty = local filter only.")]
         public string apiKey = string.Empty;
 
         [Tooltip("Chat Guard API base URL, for example https://api.chatguard.dev. Empty = local filter only.")]

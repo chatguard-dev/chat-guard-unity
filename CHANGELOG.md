@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-Cancellation tokens for `Moderate` (first entry), then performance work with no API changes. Normalized text, JSON
-bodies and results are identical to 0.2.1, checked by differential tests on .NET and on Unity 2021.3's Mono; apart
-from the new overloads, the Basic Chat sample fix at the end is the only intended behaviour change. Figures are from
+Cancellation tokens for `Moderate` and a stricter build check for test keys (first two entries), then performance
+work with no API changes. Normalized text, JSON bodies and results are identical to 0.2.1, checked by differential
+tests on .NET and on Unity 2021.3's Mono; apart from those two entries, the Basic Chat sample fix at the end is the only
+intended behaviour change. Figures are from
 Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
 
 - `Moderate` takes an optional `CancellationToken`: `ChatGuardSdk.Moderate(text, playerId, token)` and
@@ -18,6 +19,11 @@ Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
   `GetCancellationTokenOnDestroy()`. 0.2.0 dropped tokens together with `ModerateAsync`; a token needs no thread or
   timer, so the SDK still uses no `System.Threading.Tasks` and tokens work on WebGL (`CancelAfter` is the exception:
   it needs a timer thread; use `TimeoutSeconds` for timeouts).
+- Release builds refuse `cg_test_` keys: `ChatGuardBuildCheck` fails a non-development player build, Dedicated
+  Server builds included, when a `ChatGuardConfig` under a Resources folder holds a test key, and says to ship a
+  `cg_pub_` key or tick Development Build. Test keys are for the Editor and development builds; an organization's test
+  keys and its dashboard test panel now share 1,000 requests per UTC day. Server (`cg_live_`) keys are still refused in
+  players and allowed in Dedicated Server builds.
 - Word lists load lazily. Each language is parsed on first use instead of all eight at once, and the generated
   list data is only created for the languages that are parsed. Clients with `OfflineBehavior.AllowAll` or
   `BlockAll` never load the lists. Local-filter clients parse their default language (or the fallback language)
