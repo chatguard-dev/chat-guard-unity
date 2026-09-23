@@ -32,6 +32,7 @@ namespace ChatGuard.Unity
         private readonly string _moderateUrl;
         private readonly Uri? _moderateUri;
         private readonly string _authorizationHeader;
+        private readonly string _gameHeader;
         private readonly int _timeoutSeconds;
         private readonly Thresholds _thresholds;
         private readonly SeverityWeights _weights = SeverityWeights.Default();
@@ -59,6 +60,7 @@ namespace ChatGuard.Unity
             _baseUrl = _settings.BaseUrl;
             _moderateUrl = _baseUrl + "/v1/moderate";
             _authorizationHeader = "Bearer " + _settings.ApiKey;
+            _gameHeader = GameIdentity(ReadBundleId());
             _timeoutSeconds = Math.Max(1, (int)Math.Ceiling(_settings.TimeoutSeconds));
             if (HasServer && (_baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || _baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
             {
@@ -129,6 +131,48 @@ namespace ChatGuard.Unity
         {
             var filter = new LocalFilter();
             return Interlocked.CompareExchange(ref s_filter, filter, null) ?? filter;
+        }
+
+        /// <summary>
+        /// Header with the game's bundle id (Application.identifier, e.g. com.studio.game). It names the game, not the
+        /// player, and lets Chat Guard notice one game spread across several Free organizations (decision 2026-09-23).
+        /// </summary>
+        public const string GameHeaderName = "X-ChatGuard-App";
+
+        /// <summary>
+        /// The value sent in <see cref="GameHeaderName"/>: the bundle id when it is 1 to 200 ASCII letters, digits, dots,
+        /// dashes or underscores (what the API accepts), otherwise empty, and then no header is sent. Computed once per
+        /// client, so every request reuses the same string.
+        /// </summary>
+        internal static string GameIdentity(string? bundleId)
+        {
+            if (string.IsNullOrEmpty(bundleId) || bundleId!.Length > 200)
+            {
+                return string.Empty;
+            }
+
+            foreach (char c in bundleId)
+            {
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_'))
+                {
+                    return string.Empty;
+                }
+            }
+
+            return bundleId;
+        }
+
+        /// <summary>Application.identifier, or empty when it cannot be read (Unity allows it on the main thread only).</summary>
+        private static string ReadBundleId()
+        {
+            try
+            {
+                return UnityEngine.Application.identifier ?? string.Empty;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
         }
 
         /// <summary>A cg_live_ key in a player build is a leaked server key; publishable keys are cg_pub_.</summary>
@@ -228,6 +272,10 @@ namespace ChatGuard.Unity
                 uwr.SetRequestHeader("Content-Type", "application/json");
                 uwr.SetRequestHeader("Accept", "application/json");
                 uwr.SetRequestHeader("Authorization", _authorizationHeader);
+                if (_gameHeader.Length > 0)
+                {
+                    uwr.SetRequestHeader(GameHeaderName, _gameHeader);
+                }
                 operation.Attach(uwr);
 
                 // `completed` invokes immediately when the web request has already finished, so there is no race here.

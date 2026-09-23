@@ -12,6 +12,18 @@ namespace ChatGuard.Tests
         private const string SampleResponse = "{\"id\":\"019...\",\"action\":\"hide\",\"severity\":1.815,\"verdicts\":{\"insult\":{\"p\":0.91},\"threat\":{\"p\":0.03},\"hate\":{\"p\":0.05},\"sexual\":{\"p\":0.01},\"spam\":{\"p\":0.02},\"trading\":{\"p\":0.0}},\"target\":{\"choice\":\"other_user\",\"confidence\":0.84},\"degraded\":false,\"degraded_reason\":null,\"cached\":false,\"quota\":{\"used\":12345,\"limit\":50000,\"window_ends_at\":\"2026-09-23T00:00:00+00:00\"},\"model\":\"jev-1.13.0\",\"latency_ms\":212}";
 
         [Test]
+        public void GameIdentity_SendsCleanBundleIds_AndNothingElse()
+        {
+            Assert.That(ChatGuardClient.GameIdentity("com.Studio.Game-2_beta"), Is.EqualTo("com.Studio.Game-2_beta"));
+            Assert.That(ChatGuardClient.GameIdentity(null), Is.Empty);
+            Assert.That(ChatGuardClient.GameIdentity(string.Empty), Is.Empty);
+            Assert.That(ChatGuardClient.GameIdentity("com.studio game"), Is.Empty);
+            Assert.That(ChatGuardClient.GameIdentity("com.stüdio.game"), Is.Empty);
+            Assert.That(ChatGuardClient.GameIdentity(new string('a', 201)), Is.Empty);
+            Assert.That(ChatGuardClient.GameIdentity(new string('a', 200)), Has.Length.EqualTo(200));
+        }
+
+        [Test]
         public void ParsesServerResponse()
         {
             ModerationResult? result = ChatGuardClient.TryParseResponse(SampleResponse, 250);

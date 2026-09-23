@@ -1,6 +1,6 @@
 {
   "name": "com.chatguard.sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "displayName": "Chat Guard",
   "description": "Real-time chat moderation for Unity games: send each message to the Chat Guard proxy and get typed verdicts, a severity and a recommended action, with a local dictionary fallback when offline.",
   "unity": "2021.3",

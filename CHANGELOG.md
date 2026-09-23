@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-23
 
-Cancellation tokens for `Moderate` and a stricter build check for test keys (first two entries), then performance
-work with no API changes. Normalized text, JSON bodies and results are identical to 0.2.1, checked by differential
-tests on .NET and on Unity 2021.3's Mono; apart from those two entries, the two fixes at the end are the only
-intended behaviour changes. Figures are for Unity 2021.3's embedded Mono runtime (the one the editor and Mono
+Cancellation tokens for `Moderate`, a stricter build check for test keys and the game's bundle id on every request
+(first three entries), then performance work with no API changes. Normalized text, JSON bodies and results are
+identical to 0.2.1, checked by differential tests on .NET and on Unity 2021.3's Mono; apart from those three entries,
+the two fixes at the end are the only intended behaviour changes. Figures are for Unity 2021.3's embedded Mono runtime (the one the editor and Mono
 players use); the server round trip figures were measured in a Mono player, and its IL2CPP figure is labelled.
 
 - `Moderate` takes an optional `CancellationToken`: `ChatGuardSdk.Moderate(text, playerId, token)` and
@@ -28,6 +28,12 @@ players use); the server round trip figures were measured in a Mono player, and 
   `cg_pub_` key or tick Development Build. Test keys are for the Editor and development builds; an organization's test
   keys and its dashboard test panel now share 1,000 requests per UTC day. Server (`cg_live_`) keys are still refused in
   players and allowed in Dedicated Server builds.
+- Requests carry the game's bundle id (`Application.identifier`, for example `com.studio.game`) in an
+  `X-ChatGuard-App` header (`ChatGuardClient.GameHeaderName`). It names the game, not the player, and lets Chat Guard
+  notice one game spread across several Free organizations; nothing is refused because of it. A bundle id the API
+  would not accept (anything but ASCII letters, digits, dots, dashes and underscores, or more than 200 characters) is
+  left out. The value is read once per `ChatGuardClient`, so it adds no per-message allocation, and WebGL builds can
+  send it because the API allows any header in its CORS preflight.
 - Word lists load lazily. Each language is parsed on first use instead of all eight at once, and the generated
   list data is only created for the languages that are parsed. Clients with `OfflineBehavior.AllowAll` or
   `BlockAll` never load the lists. Local-filter clients parse their default language (or the fallback language)

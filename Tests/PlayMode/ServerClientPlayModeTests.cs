@@ -52,6 +52,7 @@ namespace ChatGuard.Tests
 
         private readonly object _gate = new object();
         private readonly Dictionary<string, byte[]> _received = new Dictionary<string, byte[]>();
+        private readonly Dictionary<string, string?> _receivedGame = new Dictionary<string, string?>();
         private HttpListener? _listener;
         private string _baseUrl = string.Empty;
 
@@ -104,6 +105,7 @@ namespace ChatGuard.Tests
                 lock (_gate)
                 {
                     _received[route] = body.ToArray();
+                    _receivedGame[route] = context.Request.Headers[ChatGuardClient.GameHeaderName];
                 }
 
                 (int status, string? contentType, byte[] payload) = Routes[route];
@@ -235,12 +237,18 @@ namespace ChatGuard.Tests
                 AssertSameResult(Expected(route, request), actual, route);
                 Assert.That(completedOn, Is.EqualTo(mainThread), route + ": completion must run on the main thread");
                 byte[]? received;
+                string? game;
                 lock (_gate)
                 {
                     _received.TryGetValue(route, out received);
+                    _receivedGame.TryGetValue(route, out game);
                 }
 
                 Assert.That(received, Is.EqualTo(Encoding.UTF8.GetBytes(client.BuildRequestJson(request))), route + ": uploaded body");
+                // The game's bundle id goes with every request (decision 2026-09-23); a bundle id the API would not
+                // accept is left out instead.
+                string expectedGame = System.Text.RegularExpressions.Regex.IsMatch(Application.identifier, "^[A-Za-z0-9._-]{1,200}$") ? Application.identifier : string.Empty;
+                Assert.That(game ?? string.Empty, Is.EqualTo(expectedGame), route + ": " + ChatGuardClient.GameHeaderName);
             }
         }
 
