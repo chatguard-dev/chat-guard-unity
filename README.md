@@ -1,9 +1,14 @@
 # Chat Guard for Unity
 
-Send every chat message to Chat Guard before you deliver it and get back an `action`
-(allow / flag / hide / block), six calibrated verdict probabilities, a severity and who the
-message targets. Works on Unity 2021.3 LTS and newer, uses only `UnityWebRequest`, has no
-third-party dependencies, and falls back to a built-in dictionary filter when offline.
+Chat Guard checks every chat message in about 300 ms, before other players see it. You tune
+thresholds and rules live from the dashboard, and the next message uses them, with no new build. It
+works with any multiplayer setup; [Where to call it](#where-to-call-it) shows how. Stores, consoles
+and laws expect games with chat to moderate it, and Chat Guard takes that work off your studio.
+
+For each message your game gets back an `action` (allow, flag, hide or block), six calibrated scores
+(insult, threat, hate, sexual, spam and real-money trading), a severity from 0 to 3 and who the
+message targets. The package works on Unity 2021.3 LTS and newer, uses only `UnityWebRequest` and has
+no third-party dependencies.
 
 ## Install
 
@@ -19,23 +24,28 @@ A `cg_live_` server key in a client build is a leaked key. Building a player wit
 `ChatGuardConfig` asset under Resources fails on purpose (Dedicated Server builds excepted), and a server
 key that reaches a player at runtime logs a warning. Three options, in order of preference:
 
-- **Authoritative server / host** (Mirror, Netcode for GameObjects, Photon Fusion host mode,
-  your own backend): the server calls Chat Guard with a `cg_live_` key and broadcasts the result.
-- **No server** (peer-to-peer, client-hosted, Photon PUN/Chat): run the tiny relay in
-  `Examples~/server-relay` and point clients at it. The relay holds the key.
+- **A server you run** (a dedicated server on Netcode for GameObjects, Mirror, FishNet or Photon
+  Fusion, or a backend such as Nakama, Colyseus or your own): the server calls Chat Guard with a
+  `cg_live_` key before it passes a message on. Unity servers use this package; other servers send
+  one HTTP request per message (see [Where to call it](#where-to-call-it)).
+- **No game server of your own** (Photon PUN, Photon Chat, peer-to-peer, or a match hosted on a
+  player's machine): run the example relay in `Examples~/server-relay` and have your game send
+  messages to it. The relay is a small ASP.NET Core service that you host. It holds the key, so the
+  key never reaches players' devices. Replace its shared-secret check with your own player
+  authentication before you ship.
 - **Publishable key in the client** (`cg_pub_`, analytics-SDK style): create it under Project →
   API keys → kind "publishable". It can only call `POST /v1/moderate` and `GET /v1/quota`, it
-  counts toward your quota like a server key (only model verdicts count, see the dashboard's Overview
-  page), `author.id` is required, and each key has a lower
-  rate limit plus a per-player bucket (2 requests/s, burst 10 by default), so one modified client
-  cannot drain your budget. Caveats: results computed on a player's device are **advisory**, since
-  a modified client can ignore or skip them, and anyone can extract the key and send their own
-  messages; a server or relay should still moderate when one exists. `ChatGuardClient` logs a
-  warning once if a `cg_live_` key is found in a player build.
-- **Editor and tests**: use a `cg_test_` key (not metered; 1,000 requests a day per organization,
-  shared with the dashboard's test panel). Test keys are for the Editor and development builds: a
-  release build that holds one in a `ChatGuardConfig` fails. A WebGL build running in a browser
-  needs a `cg_pub_` key, even for testing (see [WebGL builds](#webgl-builds)).
+  counts toward your quota like a server key (only messages the model checks count, see the
+  dashboard's Overview page), `author.id` is required, and each key has a lower rate limit plus a
+  per-player bucket (2 requests/s, burst 10 by default), so one modified client cannot drain your
+  budget. Caveats: results computed on a player's device are **advisory**, since a modified client
+  can ignore or skip them, and anyone can extract the key and send their own messages. Prefer a
+  server or the relay when you have one.
+
+In the Editor and in tests, use a `cg_test_` key (not metered; 1,000 requests a day per
+organization, shared with the dashboard's test panel). Test keys are for the Editor and development
+builds: a release build that holds one in a `ChatGuardConfig` fails. A WebGL build runs in a
+browser, where only a `cg_pub_` key works, even for testing (see [WebGL builds](#webgl-builds)).
 
 The `ChatGuardConfig` asset has an empty key and an empty base URL by default (local filter only
 until both are filled in). Never commit a config asset that contains a live key; publishable and
@@ -43,11 +53,11 @@ test keys are safe to commit only if you accept that they are public.
 
 ## 5-minute integration
 
-1. Create a config: **Assets → Create → Chat Guard → Config**. Set `baseUrl` and the key (a
-   `cg_pub_` key in client builds, a `cg_test_` key only in the Editor and development builds, only
-   `cg_pub_` in WebGL; `cg_live_` only on the server). Pick
-   `offlineBehavior` (`LocalFilter` is the default). No asset at all is fine too, see
-   [Configure from code](#configure-from-code-no-asset-needed).
+1. Create a config: **Assets → Create → Chat Guard → Config**. Set `baseUrl` and a key: `cg_pub_` in
+   a client build (`cg_test_` only in the Editor and development builds), `cg_live_` only on a server
+   (see [Where the key lives](#where-the-key-lives-read-this-first)). `offlineBehavior` decides what
+   happens [if Chat Guard can't be reached](#if-chat-guard-cant-be-reached); `LocalFilter` is the
+   default. No asset at all is fine too, see [Configure from code](#configure-from-code-no-asset-needed).
 2. Save it as **`Assets/Resources/ChatGuardConfig.asset`** so the static API finds it by itself, then
    moderate before delivery:
 
@@ -97,7 +107,7 @@ private IEnumerator SendChat(string playerId, string text)
 
    `StartCoroutine(ChatGuardSdk.ModerateCoroutine(text, playerId, result => ...))` is the same
    thing packaged as a coroutine. Prefer `await`? The same operation is awaitable, see
-   [Async/await without Tasks](#asyncawait-without-tasks) right below.
+   [Async/await without Tasks](#asyncawait-without-tasks) below.
 
 4. Need several clients (one per server or session) or full control over the settings? Use the
    instance API; `ChatGuardSdk` is only a thin wrapper around it:
@@ -165,6 +175,31 @@ ChatGuardSdk.Configure(new ChatGuardSettings
   validated and copied, so editing the object afterwards does not affect the client, and
   `client.Settings` returns a copy of what it runs with (it includes the key, so do not log it
   verbatim).
+
+## If Chat Guard can't be reached
+
+Chat keeps working. If the package gets no usable answer, because there is no network, no answer
+came within `timeoutSeconds` (2 s by default) or the API answered with an error, `offlineBehavior`
+decides what your game gets:
+
+- `LocalFilter` (the default): a built-in word filter answers on the device, with word lists for
+  English, Russian, Serbian, Polish, Turkish, German, Spanish and Portuguese, the same lists the
+  service falls back to. It is simpler than the model, so you might hide rather than block while it
+  answers.
+- `AllowAll`: every message is allowed.
+- `BlockAll`: every message is blocked.
+
+These results carry `Source == Local`, `Degraded == true`, details in `Error`, and a `DegradedReason`:
+`offline` (no server configured, a network error, or the request budget expired), `upstream` (a
+non-200 answer or an unreadable body) or `upstream_rate_limit` (HTTP 429).
+
+The service has the same safety net. When its model can't answer (`timeout`, `upstream` or
+`upstream_rate_limit`), or a Free plan is over its allowance (`quota`), it answers with its own word
+filter. On Free and with test keys, `upstream_rate_limit` can also mean that a shared per-minute
+allowance ran out. Those results have `Degraded == true` but keep `Source == Server`. With
+`LocalFilter` and `localFilterWhenDegraded` (on by default), the package also runs its own filter on
+the message and decides the action with your local thresholds (your `thresholds` override, or the
+built-in defaults).
 
 ## Async/await without Tasks
 
@@ -253,7 +288,10 @@ public sealed class ChatWindow : MonoBehaviour
   `UniTask.WhenAll` for example? Wrap it:
   `async UniTask<ModerationResult> ModerateAsync(ModerationOperation op) => await op;`.
 
-## Interception points per networking stack
+## Where to call it
+
+Call Chat Guard at the point every message passes before other players see it: on the server when
+you have one. On a Unity server, that is the RPC that receives the message.
 
 **Netcode for GameObjects** — the server owns chat:
 
@@ -274,6 +312,15 @@ private void SubmitChatServerRpc(string text, ServerRpcParams rpc = default)
 [ClientRpc] private void RpcReceiveChat(string text) { /* show */ }
 ```
 
+**FishNet** — same pattern with `[ServerRpc]` and `[ObserversRpc]`. `RequireOwnership = false` lets
+any client send, and FishNet fills in the trailing `NetworkConnection` with the sender:
+
+```csharp
+[ServerRpc(RequireOwnership = false)]
+private void SubmitChat(string text, NetworkConnection conn = null) => Moderate(conn.ClientId.ToString(), text, t => DeliverChat(t));
+[ObserversRpc] private void DeliverChat(string text) { /* show */ }
+```
+
 **Photon Fusion** — moderate on the state authority (host/server) before replicating:
 
 ```csharp
@@ -282,13 +329,40 @@ private void RPC_SubmitChat(string text, RpcInfo info = default) => Moderate(inf
 [Rpc(RpcSources.StateAuthority, RpcTargets.All)] private void RPC_DeliverChat(string text) { /* show */ }
 ```
 
-**Photon PUN 2 / Photon Chat** — there is no trusted server. Route `PhotonNetwork.RaiseEvent` /
-`ChatClient.PublishMessage` through the relay (`Examples~/server-relay`) and only publish the
-text the relay returned as deliverable. If you must moderate on the sender's device, treat the
-result as advisory (a modified client can skip it).
-
 Each `Moderate` above is your own helper around `ChatGuardClient.Moderate` (or `ChatGuardSdk.Moderate`),
 for example `ChatGuardSdk.Moderate(text, playerId, r => { if (r.ShouldDeliver) deliver(text); })`.
+The snippets pass per-connection ids to stay short. In your game, pass a stable id you can map to the
+player, never a name or an email: player export and erasure look messages up by that id.
+
+**Nakama** — call the HTTP API from a before hook on `ChannelMessageSend`
+(`initializer.registerRtBefore` in TypeScript, `RegisterBeforeRt` in Go). Parse
+`envelope.channelMessageSend.content`, the JSON your client sent, and send its text to
+`POST /v1/moderate` with `nk.httpRequest` and `ctx.userId` as `author.id`. Keep the `cg_live_` key
+in `runtime.env` and read it from `ctx.env`. Return the envelope to deliver the message. To drop it,
+throw an error (in Go, return one): the sender's send fails with your error, and they stay connected.
+Don't drop a message by returning `null`, because Nakama then closes the sender's socket.
+`nk.httpRequest` throws if the call fails, and that drops the message too unless you catch it.
+Request and response fields are in the [API reference](Documentation~/api-reference.md).
+
+**Colyseus** — call the HTTP API in the room's handler for your chat message (`this.onMessage`, or
+its entry in the `messages` map), before you broadcast anything. Send the text to
+`POST /v1/moderate` with your player's id as `author.id`. Then `this.broadcast` the message on
+`allow` or `flag`, `client.send` it back to its sender alone on `hide`, and tell the sender on
+`block`. Request and response fields are in the [API reference](Documentation~/api-reference.md).
+
+**Any other server** — send one `POST /v1/moderate` per message and act on its `action`. Every field
+is in the [API reference](Documentation~/api-reference.md), and the dashboard has examples in C#,
+TypeScript, Python, Go and Java.
+
+**Photon PUN 2 and Photon Chat** — there is no server of yours between players, so the sending game
+asks for the check. Before `PhotonNetwork.RaiseEvent` or `ChatClient.PublishMessage`, send the text
+to the relay (`Examples~/server-relay`, the small service you run) and publish the message only
+when the answer's `action` is `allow` or `flag`. Photon Chat can also ask your own web service
+first: publish (or send private messages) with `forwardAsWebhook: true` and set `PathPublishMessage`
+in your Chat app's webhook settings; the service calls Chat Guard and answers with a non-zero
+`ResultCode` to cancel the message. The example relay doesn't handle that webhook, so that service
+is yours to write. Both ways keep your key off players' devices, but a modified client can skip the
+check, so treat the result as advisory.
 
 ## WebGL builds
 
@@ -324,21 +398,16 @@ mean giving up `await`; it only means the SDK never touches the thread pool or t
 tokens are fine: `CancellationToken` lives in `System.Threading`, and cancelling one only runs
 callbacks, so `Moderate` accepts one (see [Cancellation tokens](#cancellation-tokens)).
 
-## Behaviour when the server cannot answer
+## Thresholds and rules
 
-`offlineBehavior` decides: `AllowAll`, `LocalFilter` (word lists for en, ru, sr, pl, tr, de, es,
-pt, identical to the server's fallback), or `BlockAll`. Results answered on the device carry
-`Source == Local`, `Degraded == true` and a `DegradedReason`: `offline` (no server configured, a
-network error, or the request budget expired), `upstream` (a non-200 answer or an unreadable body) or
-`upstream_rate_limit` (HTTP 429). `timeout` and `quota` come from the server's own `degraded_reason`;
-those results keep `Source == Server`, and the client re-runs the local filter with your `thresholds`
-override so your own limits still apply.
+Thresholds and rules live in the dashboard, per project, not in your game. Save a change and the
+next message uses it: no new build, no store review, no waiting for players to update. Thresholds
+are on every plan; block, allow and context rules come with Indie and up. Probabilities are
+calibrated: 0.9 means "nine times out of ten this is an insult".
 
-## Thresholds
-
-Server-side thresholds are edited in the dashboard per project. The config's `overrideThresholds`
-(or `ChatGuardSettings.Thresholds` from code) applies only to local decisions (offline and degraded). Probabilities are calibrated: 0.9 means
-"nine times out of ten this is an insult".
+The config's `overrideThresholds` (or `ChatGuardSettings.Thresholds` from code) applies only to
+decisions the package makes itself, offline or degraded (see
+[If Chat Guard can't be reached](#if-chat-guard-cant-be-reached)).
 
 ## Feedback
 
@@ -359,7 +428,7 @@ that contain one. If a key leaks, revoke it on the dashboard's Keys page.
 ## About `Runtime/Core`
 
 `Runtime/Core` mirrors the filtering and scoring library used by the Chat Guard service (word
-lists, normalization, thresholds), so offline decisions match what the server would do with the
-same settings. It is refreshed from the service's source tree on every package release; do not
-edit it in place. The EditMode tests run the same `local-filter.json` vectors as the service's
-own tests.
+lists, normalization, thresholds), so a message the package answers on the device gets the same
+result the service's own word filter would give it with the same settings. It is refreshed from the
+service's source tree on every package release; do not edit it in place. The EditMode tests run the
+same `local-filter.json` vectors as the service's own tests.
