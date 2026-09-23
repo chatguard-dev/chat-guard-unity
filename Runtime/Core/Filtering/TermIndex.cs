@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using ChatGuard.Core.Text;
 
 namespace ChatGuard.Core.Filtering
@@ -8,6 +9,8 @@ namespace ChatGuard.Core.Filtering
     /// <summary>A term that matched, with the payload attached to it when it was indexed.</summary>
     internal sealed class TermHit<T>
     {
+        private string? _key;
+
         public TermHit(string term, T payload)
         {
             Term = term;
@@ -18,6 +21,28 @@ namespace ChatGuard.Core.Filtering
         public string Term { get; }
 
         public T Payload { get; }
+
+        /// <summary>
+        /// The normalized, folded term that category-less allow rules compare against. Computed on first
+        /// use and cached. Instances live in the shared built-in catalog, so the cache is read with
+        /// Volatile.Read and published with Interlocked.CompareExchange: a plain store does not guarantee
+        /// that another thread sees a fully built string on ARM64 (IL2CPP or Mono). A race may compute it
+        /// twice; every caller gets the first published value.
+        /// </summary>
+        public string Key
+        {
+            get
+            {
+                string? key = Volatile.Read(ref _key);
+                if (key == null)
+                {
+                    string computed = TextNormalizer.Fold(TextNormalizer.Normalize(Term));
+                    key = Interlocked.CompareExchange(ref _key, computed, null) ?? computed;
+                }
+
+                return key;
+            }
+        }
     }
 
     /// <summary>

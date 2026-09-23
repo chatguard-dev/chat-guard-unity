@@ -269,7 +269,7 @@ Server-side thresholds are edited in the dashboard per project. The config's `ov
 
 ## Help and support
 
-- **Questions and bugs:** the `#help` forum on the Chat Guard Discord, https://discord.gg/udtGVvXsRE.
+- **Questions and bugs:** the `#help` forum on the Chat Guard Discord, https://chatguard.dev/discord.
   Include your Unity version, the package version (`package.json`) and the platform.
 - **Feature ideas:** `#feature-requests` on the same server; upvote an existing post instead of repeating it.
 - **Account, billing or player-data requests:** support@chatguard.dev, so we can look at your organization privately.

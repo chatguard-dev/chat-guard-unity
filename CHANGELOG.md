@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+Performance work with no API changes. Normalized text, JSON bodies and results are identical to 0.2.1, checked by
+differential tests on .NET and on Unity 2021.3's Mono; the Basic Chat sample fix at the end is the only intended
+behaviour change. Figures are from Unity 2021.3's embedded Mono runtime (the one the editor and Mono players use).
+
+- Word lists load lazily. Each language is parsed on first use instead of all eight at once, and the generated
+  list data is only created for the languages that are parsed. Clients with `OfflineBehavior.AllowAll` or
+  `BlockAll` never load the lists. Local-filter clients parse their default language (or the fallback language)
+  and English when they are constructed. Any other language a request names is parsed on the main thread the
+  first time a message in that language falls back to the local filter, once per language: about 1.5–2 ms and
+  150–240 KB, and about 3 ms and 0.4 MB for Serbian, whose list holds Latin and Cyrillic spellings. The first
+  `ChatGuardClient` construction allocates about 0.2 MB instead of 3.1 MB with English as the default language,
+  and about 0.35–0.6 MB with another default language, which is parsed as well. Word-list memory kept for the
+  app's lifetime (the parsed lists plus the string literals the runtime keeps) drops from about 0.55 MB for all
+  eight languages, which every client paid in 0.2.1, to about 75 KB when only English is loaded, more for each
+  further language, and under 1 KB for `AllowAll`/`BlockAll` clients.
+- The offline and degraded path allocates 62–72% less per message (about 2.9 KB instead of 10.5 KB for a
+  60-character message) and runs 40–75% faster:
+  - The local filter no longer computes a SHA-256 hash of each message; nothing in the client read it.
+    `NormalizedMessage.Hash` now computes it on first read.
+  - The normalizer skips steps that would not change the text: Unicode normalization for ASCII text, lowercasing
+    for ASCII text without capital letters, and rebuilding the message token by token when no token needs a
+    rewrite and the words are already separated by single spaces with no leading whitespace.
+  - Category sorting no longer boxes enum values.
+- Request bodies are written directly instead of through a dictionary tree, which is about 60% less garbage per
+  call for a 60-character message with author, five-entry thread and channel, and about 47% for a
+  500-character one. The request URL and the `Authorization` header are prepared once per client, so
+  `UnityWebRequest` no longer re-parses the URL on every call.
+- The JSON reader returns strings without escape sequences as a single substring and parses numbers in place,
+  which cuts response parsing garbage by about half.
+- Basic Chat sample: it now shows its text on Unity 2021.3; it was loading the built-in font name that only
+  exists from 2022.2. It also no longer writes the slider values into the `ChatGuardConfig` asset you assign to it.
+
 ## 0.2.1 — 2026-09-22
 
 - Player builds fail early when a `ChatGuardConfig` asset under a Resources folder holds a `cg_live_` server key

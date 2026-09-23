@@ -39,15 +39,18 @@ namespace ChatGuard.Core.Filtering
     /// Built-in word lists for the local filter. Sources are the *.txt files next to this file
     /// (one <c>categories|term</c> per line); <c>WordLists.Generated.cs</c> is produced from them by
     /// <c>tools/WordListGen</c> so that the data travels with the C# sources into the Unity package.
-    /// Parsing happens here at first use with the same normalizer the filter uses.
+    /// Each language's list is parsed on its first use, with the same normalizer the filter uses, so a
+    /// client that only ever filters one or two languages never pays for the others.
     /// </summary>
     public sealed class WordListCatalog
     {
         private static readonly Lazy<WordListCatalog> BuiltInLazy = new Lazy<WordListCatalog>(LoadBuiltIn);
 
-        private readonly Dictionary<string, LanguageWordList> _lists;
+        // Built once and never mutated afterwards. Built-in slots parse their language on first access;
+        // FromEntries slots are parsed up front.
+        private readonly Dictionary<string, Lazy<LanguageWordList>> _lists;
 
-        private WordListCatalog(string version, Dictionary<string, LanguageWordList> lists)
+        private WordListCatalog(string version, Dictionary<string, Lazy<LanguageWordList>> lists)
         {
             Version = version;
             _lists = lists;
@@ -68,16 +71,18 @@ namespace ChatGuard.Core.Filtering
                 return null;
             }
 
-            return _lists.TryGetValue(language!.Trim().ToLowerInvariant(), out LanguageWordList list) ? list : null;
+            return _lists.TryGetValue(language!.Trim().ToLowerInvariant(), out Lazy<LanguageWordList> slot) ? slot.Value : null;
         }
 
         /// <summary>Builds a catalog from raw entries; used by tests and by the generator's self-check.</summary>
         public static WordListCatalog FromEntries(string version, IDictionary<string, string[]> entriesByLanguage)
         {
-            var lists = new Dictionary<string, LanguageWordList>(StringComparer.Ordinal);
+            var lists = new Dictionary<string, Lazy<LanguageWordList>>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, string[]> pair in entriesByLanguage)
             {
-                lists[pair.Key.ToLowerInvariant()] = Parse(pair.Key.ToLowerInvariant(), pair.Value);
+                // Parsed eagerly: SkippedEntries/Count are known right away and the caller's arrays are not kept.
+                string key = pair.Key.ToLowerInvariant();
+                lists[key] = new Lazy<LanguageWordList>(Parse(key, pair.Value));
             }
 
             return new WordListCatalog(version, lists);
@@ -143,13 +148,15 @@ namespace ChatGuard.Core.Filtering
 
         private static WordListCatalog LoadBuiltIn()
         {
-            var entries = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            // Generated language codes are already lower case. The generated data is only materialized
+            // (and parsed) when a language is first used.
+            var lists = new Dictionary<string, Lazy<LanguageWordList>>(StringComparer.Ordinal);
             foreach (string language in GeneratedWordLists.Languages)
             {
-                entries[language] = GeneratedWordLists.Entries(language);
+                lists[language] = new Lazy<LanguageWordList>(() => Parse(language, GeneratedWordLists.Entries(language)));
             }
 
-            return FromEntries(GeneratedWordLists.Version, entries);
+            return new WordListCatalog(GeneratedWordLists.Version, lists);
         }
 
         private static LanguageWordList Parse(string language, string[] lines)

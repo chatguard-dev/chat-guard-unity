@@ -3,7 +3,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
+using System.Threading;
 using ChatGuard.Core;
 using ChatGuard.Core.Filtering;
 using ChatGuard.Core.Scoring;
@@ -21,11 +23,15 @@ namespace ChatGuard.Unity
     /// </summary>
     public sealed class ChatGuardClient
     {
-        private static readonly LocalFilter Filter = new LocalFilter();
+        private static LocalFilter? s_filter;
         private static bool s_warnedLiveKey;
 
         private readonly ChatGuardSettings _settings;
         private readonly string _baseUrl;
+        private readonly string _moderateUrl;
+        private readonly Uri? _moderateUri;
+        private readonly string _authorizationHeader;
+        private readonly int _timeoutSeconds;
         private readonly Thresholds _thresholds;
         private readonly SeverityWeights _weights = SeverityWeights.Default();
 
@@ -50,8 +56,25 @@ namespace ChatGuard.Unity
             _settings.DefaultLanguage = _settings.DefaultLanguage ?? string.Empty;
             _settings.ChannelType = _settings.ChannelType ?? string.Empty;
             _baseUrl = _settings.BaseUrl;
+            _moderateUrl = _baseUrl + "/v1/moderate";
+            _authorizationHeader = "Bearer " + _settings.ApiKey;
+            _timeoutSeconds = Math.Max(1, (int)Math.Ceiling(_settings.TimeoutSeconds));
+            if (HasServer && (_baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || _baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Parsed once per client; left null when System.Uri rejects the URL so Moderate takes the string path.
+                Uri.TryCreate(_moderateUrl, UriKind.Absolute, out _moderateUri);
+            }
+
             _thresholds = _settings.Thresholds ?? Thresholds.Default();
             WarnIfServerKeyInBuild(_settings.ApiKey);
+            if (_settings.OfflineBehavior != OfflineBehavior.AllowAll && _settings.OfflineBehavior != OfflineBehavior.BlockAll)
+            {
+                // Parse the word lists this client falls back to by default (same test as Fallback's default branch)
+                // here, at construction, so that cost does not land on the first offline or degraded message.
+                // Evaluating an empty message reuses the filter's own language resolution (the default language or the
+                // fallback, plus English). A request that names another language parses that list on its first fallback.
+                Filter.Evaluate(NormalizedMessage.Create(string.Empty), _settings.DefaultLanguage);
+            }
         }
 
         /// <summary>Builds a client from a <see cref="ChatGuardConfig"/> asset (see <see cref="ChatGuardConfig.ToSettings"/>).</summary>
@@ -88,6 +111,24 @@ namespace ChatGuard.Unity
         /// verbatim. Changing the copy does not affect the client.
         /// </summary>
         public ChatGuardSettings Settings => _settings.Clone();
+
+        /// <summary>
+        /// The shared dictionary filter, created on first use so AllowAll/BlockAll clients never create it or the built-in
+        /// catalog. Creating it parses nothing: the catalog parses each language's list on that language's first lookup
+        /// (see the constructor's prewarm). A plain static field with no initializer keeps ChatGuardClient free of a type
+        /// initializer (Mono runs beforefieldinit initializers while JIT-compiling methods that touch them). The field is
+        /// read with Volatile.Read and set with Interlocked.CompareExchange, because a plain store does not guarantee that
+        /// another thread sees a fully built filter on ARM64 (IL2CPP or Mono). A race can build a second filter, which is
+        /// discarded; every caller gets the published one.
+        /// </summary>
+        private static LocalFilter Filter => Volatile.Read(ref s_filter) ?? CreateFilter();
+
+        /// <summary>Builds the shared filter and publishes it unless another thread already has; returns the published one.</summary>
+        private static LocalFilter CreateFilter()
+        {
+            var filter = new LocalFilter();
+            return Interlocked.CompareExchange(ref s_filter, filter, null) ?? filter;
+        }
 
         /// <summary>A cg_live_ key in a player build is a leaked server key; publishable keys are cg_pub_.</summary>
         private static void WarnIfServerKeyInBuild(string apiKey)
@@ -134,13 +175,17 @@ namespace ChatGuard.Unity
             {
                 var sw = Stopwatch.StartNew();
                 byte[] body = Encoding.UTF8.GetBytes(BuildRequestJson(request));
-                uwr = new UnityWebRequest(_baseUrl + "/v1/moderate", "POST");
+                // The Uri overload skips UnityWebRequest's per-call URL re-parsing (two Uri objects and a regex) and
+                // yields the same url. _moderateUri is null for base URLs without an http(s) scheme and for URLs
+                // System.Uri rejects; those use the string overload, so they behave and fail exactly as
+                // UnityWebRequest(string) does.
+                uwr = _moderateUri != null ? new UnityWebRequest(_moderateUri, UnityWebRequest.kHttpVerbPOST) : new UnityWebRequest(_moderateUrl, UnityWebRequest.kHttpVerbPOST);
                 uwr.uploadHandler = new UploadHandlerRaw(body);
                 uwr.downloadHandler = new DownloadHandlerBuffer();
-                uwr.timeout = Math.Max(1, (int)Math.Ceiling(_settings.TimeoutSeconds));
+                uwr.timeout = _timeoutSeconds;
                 uwr.SetRequestHeader("Content-Type", "application/json");
                 uwr.SetRequestHeader("Accept", "application/json");
-                uwr.SetRequestHeader("Authorization", "Bearer " + _settings.ApiKey);
+                uwr.SetRequestHeader("Authorization", _authorizationHeader);
                 operation.Attach(uwr);
 
                 UnityWebRequest sent = uwr;
@@ -238,70 +283,126 @@ namespace ChatGuard.Unity
         /// <summary>Serializes the request; only set fields are written (the API rejects negative counts).</summary>
         public string BuildRequestJson(ModerationRequest request)
         {
-            var root = new Dictionary<string, object?> { ["message"] = request.message ?? string.Empty };
+            // Written directly rather than by building a Dictionary tree for MiniJson.Write (the serializer up to 0.2.1).
+            // The output must stay byte-identical to that tree's: same keys, order and omission rules, strings escaped by
+            // MiniJson.WriteString, counts as invariant integers written only when >= 0. The RequestJson_*_ExactString
+            // tests in ClientJsonTests pin this. A null thread entry inside the last-5 window throws
+            // NullReferenceException when its author is read
+            // (RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows).
+            List<ThreadEntry>? thread = request.thread;
+            int threadStart = thread != null ? Math.Max(0, thread.Count - 5) : 0;
+            string channelType = string.IsNullOrEmpty(request.channelType) ? _settings.ChannelType : request.channelType!;
+            string language = string.IsNullOrEmpty(request.language) ? _settings.DefaultLanguage : request.language!;
+            string? ageRating = string.IsNullOrEmpty(request.ageRating) ? _settings.AgeRating : request.ageRating;
+            var sb = new StringBuilder(EstimateRequestJsonLength(request, thread, threadStart, channelType, language, ageRating));
+            sb.Append("{\"message\":");
+            MiniJson.WriteString(sb, request.message ?? string.Empty);
             if (!string.IsNullOrEmpty(request.authorId) || request.accountAgeDays >= 0 || request.priorWarnings >= 0)
             {
-                var author = new Dictionary<string, object?>();
+                sb.Append(",\"author\":{");
+                bool first = true;
                 if (!string.IsNullOrEmpty(request.authorId))
                 {
-                    author["id"] = request.authorId;
+                    sb.Append("\"id\":");
+                    MiniJson.WriteString(sb, request.authorId!);
+                    first = false;
                 }
 
                 if (request.accountAgeDays >= 0)
                 {
-                    author["account_age_days"] = request.accountAgeDays;
+                    sb.Append(first ? "\"account_age_days\":" : ",\"account_age_days\":");
+                    sb.Append(request.accountAgeDays.ToString(CultureInfo.InvariantCulture));
+                    first = false;
                 }
 
                 if (request.priorWarnings >= 0)
                 {
-                    author["prior_warnings"] = request.priorWarnings;
+                    sb.Append(first ? "\"prior_warnings\":" : ",\"prior_warnings\":");
+                    sb.Append(request.priorWarnings.ToString(CultureInfo.InvariantCulture));
                 }
 
-                root["author"] = author;
+                sb.Append('}');
             }
 
-            if (request.thread != null && request.thread.Count > 0)
+            if (thread != null && thread.Count > 0)
             {
-                var thread = new List<object?>();
-                int start = Math.Max(0, request.thread.Count - 5);
-                for (int i = start; i < request.thread.Count; i++)
+                sb.Append(",\"thread\":[");
+                for (int i = threadStart; i < thread.Count; i++)
                 {
-                    thread.Add(new Dictionary<string, object?> { ["author"] = request.thread[i].author ?? "unknown", ["text"] = request.thread[i].text ?? string.Empty });
+                    ThreadEntry entry = thread[i];
+                    sb.Append(i == threadStart ? "{\"author\":" : ",{\"author\":");
+                    MiniJson.WriteString(sb, entry.author ?? "unknown");
+                    sb.Append(",\"text\":");
+                    MiniJson.WriteString(sb, entry.text ?? string.Empty);
+                    sb.Append('}');
                 }
 
-                root["thread"] = thread;
+                sb.Append(']');
             }
 
-            var channel = new Dictionary<string, object?>();
-            string channelType = string.IsNullOrEmpty(request.channelType) ? _settings.ChannelType : request.channelType!;
-            string language = string.IsNullOrEmpty(request.language) ? _settings.DefaultLanguage : request.language!;
-            string? ageRating = string.IsNullOrEmpty(request.ageRating) ? _settings.AgeRating : request.ageRating;
-            if (!string.IsNullOrEmpty(channelType))
+            if (!string.IsNullOrEmpty(channelType) || !string.IsNullOrEmpty(language) || !string.IsNullOrEmpty(ageRating))
             {
-                channel["type"] = channelType;
-            }
+                sb.Append(",\"channel\":{");
+                bool first = true;
+                if (!string.IsNullOrEmpty(channelType))
+                {
+                    sb.Append("\"type\":");
+                    MiniJson.WriteString(sb, channelType);
+                    first = false;
+                }
 
-            if (!string.IsNullOrEmpty(language))
-            {
-                channel["language"] = language;
-            }
+                if (!string.IsNullOrEmpty(language))
+                {
+                    sb.Append(first ? "\"language\":" : ",\"language\":");
+                    MiniJson.WriteString(sb, language);
+                    first = false;
+                }
 
-            if (!string.IsNullOrEmpty(ageRating))
-            {
-                channel["age_rating"] = ageRating;
-            }
+                if (!string.IsNullOrEmpty(ageRating))
+                {
+                    sb.Append(first ? "\"age_rating\":" : ",\"age_rating\":");
+                    MiniJson.WriteString(sb, ageRating!);
+                }
 
-            if (channel.Count > 0)
-            {
-                root["channel"] = channel;
+                sb.Append('}');
             }
 
             if (!string.IsNullOrEmpty(request.requestId))
             {
-                root["request_id"] = request.requestId;
+                sb.Append(",\"request_id\":");
+                MiniJson.WriteString(sb, request.requestId!);
             }
 
-            return MiniJson.Write(root);
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Initial builder capacity for <see cref="BuildRequestJson"/>: every string that is written (message, author id,
+        /// the thread entries that are sent, channel values, request id) plus their keys and separators. 128 covers the
+        /// fixed keys and brackets, 48 the two counts, and 32 each thread entry's keys (or "unknown" for a null author).
+        /// Only a hint (escapes can make the JSON longer), so it is computed in long, never throws, reads only the last-5
+        /// window and is capped at 64K chars.
+        /// </summary>
+        private static int EstimateRequestJsonLength(ModerationRequest request, List<ThreadEntry>? thread, int threadStart, string? channelType, string? language, string? ageRating)
+        {
+            long estimate = 128L + (request.message?.Length ?? 0) + (request.authorId?.Length ?? 0) + (request.requestId?.Length ?? 0)
+                + (channelType?.Length ?? 0) + (language?.Length ?? 0) + (ageRating?.Length ?? 0);
+            if (request.accountAgeDays >= 0 || request.priorWarnings >= 0)
+            {
+                estimate += 48;
+            }
+
+            if (thread != null)
+            {
+                for (int i = threadStart; i < thread.Count; i++)
+                {
+                    ThreadEntry? entry = thread[i];
+                    estimate += 32 + (entry?.author?.Length ?? 0) + (entry?.text?.Length ?? 0);
+                }
+            }
+
+            return (int)Math.Min(estimate, 65536L);
         }
 
         /// <summary>Parses a /v1/moderate response body. Returns null when the shape is not recognised.</summary>

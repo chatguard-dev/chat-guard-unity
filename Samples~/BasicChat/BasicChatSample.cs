@@ -1,6 +1,7 @@
 #nullable enable
 using System.Collections.Generic;
 using ChatGuard.Core;
+using ChatGuard.Core.Scoring;
 using ChatGuard.Unity;
 using UnityEngine;
 using UnityEngine.UI;
@@ -31,18 +32,16 @@ namespace ChatGuard.Samples
             RebuildClient();
         }
 
+        /// <summary>Builds the client from plain settings so the sliders never write into the assigned config asset.</summary>
         private void RebuildClient()
         {
-            if (config == null)
-            {
-                config = ScriptableObject.CreateInstance<ChatGuardConfig>();
-            }
-
-            config.overrideThresholds = true;
-            config.thresholds.insult.hide = _insultHide != null ? _insultHide.value : 0.8f;
-            config.thresholds.threat.block = _threatBlock != null ? _threatBlock.value : 0.85f;
-            config.thresholds.severityBlock = _severityBlock != null ? _severityBlock.value : 2.5f;
-            _client = new ChatGuardClient(config);
+            ChatGuardSettings settings = config != null ? config.ToSettings() : new ChatGuardSettings();
+            Thresholds thresholds = (config != null ? config.thresholds : new ThresholdsOverride()).ToCore();
+            thresholds.Insult.Hide = _insultHide != null ? _insultHide.value : 0.8f;
+            thresholds.Threat.Block = _threatBlock != null ? _threatBlock.value : 0.85f;
+            thresholds.SeverityBlock = _severityBlock != null ? _severityBlock.value : 2.5f;
+            settings.Thresholds = thresholds;
+            _client = new ChatGuardClient(settings);
         }
 
         private void Send()
@@ -105,7 +104,12 @@ namespace ChatGuard.Samples
                 new GameObject("EventSystem", typeof(UnityEngine.EventSystems.EventSystem), typeof(UnityEngine.EventSystems.StandaloneInputModule));
             }
 
+            // Unity 2022.2 renamed the built-in UI font; each name throws or returns null on the other side of that release.
+#if UNITY_2022_2_OR_NEWER
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+#else
+            Font font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+#endif
 
             _log = MakeText(canvasGo.transform, "Log", font, new Vector2(20, 120), new Vector2(880, 560), 16, TextAnchor.LowerLeft);
             _log.supportRichText = true;

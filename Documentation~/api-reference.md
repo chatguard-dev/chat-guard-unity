@@ -15,6 +15,11 @@ readable description is `openapi.json` next to this file (also served at `https:
   | Publishable | `cg_pub_` | `POST /v1/moderate`, `GET /v1/quota` only (others return 403) | yes (model verdicts) | safe to ship in a client build; `author.id` required; lower per-key limit plus a per-author bucket; results on a player's device are advisory |
 - Dashboard endpoints (`/api/*`): `Authorization: Bearer <JWT>` obtained from `POST /api/auth/refresh`
   after an OAuth sign-in. Browser origins are restricted to the dashboard (CORS).
+- `POST /api/auth/refresh` reads the HttpOnly `cg_refresh` cookie that sign-in sets (30 days, path
+  `/api/auth`), replaces it with a new one and returns `200 { "access_token", "expires_in", "user" }`
+  (the access token lasts 15 minutes). Without the cookie it returns `204` with no body: nobody is
+  signed in. An unknown, expired or revoked cookie (each one works once; sign-out revokes it too)
+  returns `401` and is cleared. Treat `204` and `401` alike as signed out.
 
 ## POST /v1/moderate
 
@@ -126,6 +131,7 @@ Per key (token bucket shared across API instances), configurable per tier:
 | Free | 20 req/s, burst 100 | 10 req/s, burst 50 |
 | Indie | 50 req/s, burst 200 | 25 req/s, burst 100 |
 | Studio | 200 req/s, burst 1000 | 100 req/s, burst 500 |
+| Enterprise | 500 req/s, burst 2000 | 250 req/s, burst 1000 |
 
 Publishable keys additionally get a bucket per `(key, author.id)` of 2 req/s with burst 10
 (`Moderation:PubPerAuthorRps/Burst`); a `429` names the author bucket in `detail`. A coarse per-IP
@@ -146,6 +152,7 @@ All under `/api`, JWT required, JSON:
 | `GET/POST /api/projects/{id}/rules`, `PATCH/DELETE …/rules/{rid}` | allow/block/context rules |
 | `GET /api/projects/{id}/usage`, `…/verdicts`, `…/evidence`, `…/evidence/export`, `…/feedback` | logs and usage |
 | `DELETE /api/projects/{id}/evidence/authors/{author}` | erasure from the dashboard |
+| `GET /api/projects/{id}/authors/export?author_opaque_id=…` | everything the project stores for one player (verdicts and evidence) as JSON, for access requests; owners and admins, every plan |
 | `POST /api/projects/{id}/test` | dashboard test panel: runs the pipeline with optional draft thresholds, weights and rules; not metered or logged; returns raw and adjusted verdicts plus the reasons for the action |
 | `GET /api/orgs/{id}/billing`, `POST …/billing/checkout`, `…/change`, `…/cancel`, `…/portal` | Polar billing |
 | `POST /webhooks/polar` | Polar webhooks (Standard Webhooks signature) |

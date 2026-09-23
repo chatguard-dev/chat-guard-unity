@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading;
 using ChatGuard.Core.Text;
 
 namespace ChatGuard.Core.Filtering
@@ -18,6 +19,8 @@ namespace ChatGuard.Core.Filtering
     /// <summary>A project-defined allow or block rule (custom_rules rows of kind allow/block).</summary>
     public sealed class CustomRule
     {
+        private string? _key;
+
         public CustomRule(string id, CustomRuleKind kind, string pattern, bool isRegex, VerdictCategory? category)
         {
             Id = id ?? throw new ArgumentNullException(nameof(id));
@@ -38,6 +41,26 @@ namespace ChatGuard.Core.Filtering
 
         /// <summary>For allow rules: the verdict category this rule exempts. Null = only the local filter is affected.</summary>
         public VerdictCategory? Category { get; }
+
+        /// <summary>
+        /// The normalized, folded pattern a category-less allow rule exempts. Computed on first use and
+        /// cached with Volatile.Read and Interlocked.CompareExchange, so a rule shared between threads is safe
+        /// on ARM64 (IL2CPP or Mono) too. A race may compute it twice; every caller gets the first published value.
+        /// </summary>
+        internal string Key
+        {
+            get
+            {
+                string? key = Volatile.Read(ref _key);
+                if (key == null)
+                {
+                    string computed = TextNormalizer.Fold(TextNormalizer.Normalize(Pattern));
+                    key = Interlocked.CompareExchange(ref _key, computed, null) ?? computed;
+                }
+
+                return key;
+            }
+        }
     }
 
     /// <summary>Thrown by <see cref="CompiledRuleSet.Compile(System.Collections.Generic.IEnumerable{CustomRule})"/> when a rule cannot be used.</summary>
@@ -128,6 +151,12 @@ namespace ChatGuard.Core.Filtering
         /// <summary>The first matching block rule, or null.</summary>
         internal CustomRule? FirstBlockMatch(NormalizedMessage message, string[][] candidates)
         {
+            // Sets with only allow rules (and the empty set) cannot block; skip the lookups and the list.
+            if (_blockTerms.Count == 0 && _blockRegexes.Count == 0)
+            {
+                return null;
+            }
+
             var hits = new List<TermHit<CustomRule>>();
             _blockTerms.Match(candidates, hits);
             if (hits.Count > 0)

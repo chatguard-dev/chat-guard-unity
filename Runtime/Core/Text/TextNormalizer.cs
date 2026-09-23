@@ -28,7 +28,7 @@ namespace ChatGuard.Core.Text
             string s = StripInvisible(input!);
             s = TryNormalize(s, NormalizationForm.FormKC);
             s = s.Replace('İ', 'i'); // İ → i before lowering; runtimes disagree on its lowercase form
-            s = s.ToLowerInvariant();
+            s = IsLowercaseAscii(s) ? s : s.ToLowerInvariant(); // skip the no-op: Mono's ToLowerInvariant always copies
             s = s.Replace("i̇", "i"); // leftover combining dot above from some runtimes
             s = MapTokens(s);
             s = CollapseRuns(s, MaxRun);
@@ -76,35 +76,43 @@ namespace ChatGuard.Core.Text
                 return string.Empty;
             }
 
-            string d = TryNormalize(token, NormalizationForm.FormD);
-            var sb = new StringBuilder(d.Length);
-            foreach (char c in d)
+            // Exact: ASCII is NFD-stable, has no combining marks and none of the special cases below is ASCII.
+            if (IsAscii(token))
             {
+                return token;
+            }
+
+            string d = TryNormalize(token, NormalizationForm.FormD);
+            StringBuilder? sb = null; // created at the first dropped or replaced character; until then the output is d[0..i)
+            for (int i = 0; i < d.Length; i++)
+            {
+                char c = d[i];
                 UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(c);
                 if (category == UnicodeCategory.NonSpacingMark
                     || category == UnicodeCategory.SpacingCombiningMark
                     || category == UnicodeCategory.EnclosingMark)
                 {
+                    StartBuilder(ref sb, d, i);
                     continue;
                 }
 
                 switch (c)
                 {
-                    case 'ß': sb.Append("ss"); break;
-                    case 'ı': sb.Append('i'); break;
-                    case 'ł': sb.Append('l'); break;
-                    case 'ø': sb.Append('o'); break;
-                    case 'đ': sb.Append('d'); break;
-                    case 'ð': sb.Append('d'); break;
-                    case 'æ': sb.Append("ae"); break;
-                    case 'œ': sb.Append("oe"); break;
-                    case 'þ': sb.Append("th"); break;
-                    case 'ħ': sb.Append('h'); break;
-                    default: sb.Append(c); break;
+                    case 'ß': StartBuilder(ref sb, d, i).Append("ss"); break;
+                    case 'ı': StartBuilder(ref sb, d, i).Append('i'); break;
+                    case 'ł': StartBuilder(ref sb, d, i).Append('l'); break;
+                    case 'ø': StartBuilder(ref sb, d, i).Append('o'); break;
+                    case 'đ': StartBuilder(ref sb, d, i).Append('d'); break;
+                    case 'ð': StartBuilder(ref sb, d, i).Append('d'); break;
+                    case 'æ': StartBuilder(ref sb, d, i).Append("ae"); break;
+                    case 'œ': StartBuilder(ref sb, d, i).Append("oe"); break;
+                    case 'þ': StartBuilder(ref sb, d, i).Append("th"); break;
+                    case 'ħ': StartBuilder(ref sb, d, i).Append('h'); break;
+                    default: sb?.Append(c); break;
                 }
             }
 
-            return sb.ToString();
+            return sb == null ? d : sb.ToString();
         }
 
         /// <summary>Collapses every run of identical characters to a single character ("shiit" → "shit").</summary>
@@ -115,11 +123,12 @@ namespace ChatGuard.Core.Text
                 return text ?? string.Empty;
             }
 
-            var sb = new StringBuilder(text.Length);
+            StringBuilder? sb = null; // created at the first dropped character; until then the output is text[0..i)
             char previous = '\0';
             int run = 0;
-            foreach (char c in text)
+            for (int i = 0; i < text.Length; i++)
             {
+                char c = text[i];
                 if (c == previous)
                 {
                     run++;
@@ -132,11 +141,15 @@ namespace ChatGuard.Core.Text
 
                 if (run <= maxRun)
                 {
-                    sb.Append(c);
+                    sb?.Append(c);
+                }
+                else
+                {
+                    StartBuilder(ref sb, text, i);
                 }
             }
 
-            return sb.ToString();
+            return sb == null ? text : sb.ToString();
         }
 
         private static void Flush(StringBuilder sb, List<string> tokens)
@@ -149,12 +162,61 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
+        /// Returns <paramref name="sb"/>, creating it first (seeded with <c>text[0..end)</c>) when it is still null.
+        /// Used by loops whose output equals their input until the first character they drop or replace.
+        /// </summary>
+        private static StringBuilder StartBuilder(ref StringBuilder? sb, string text, int end)
+        {
+            if (sb == null)
+            {
+                sb = new StringBuilder(text.Length);
+                sb.Append(text, 0, end);
+            }
+
+            return sb;
+        }
+
+        /// <summary>True when every character is U+0000..U+007F (netstandard2.1 has no char.IsAscii).</summary>
+        private static bool IsAscii(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] > '\u007F')
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>True when <paramref name="s"/> is ASCII without 'A'..'Z', so ToLowerInvariant would return it unchanged.</summary>
+        private static bool IsLowercaseAscii(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c > '\u007F' || (c >= 'A' && c <= 'Z'))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Drops invisible characters and folds the Mathematical Alphanumeric Symbols block (𝐢𝐝𝐢𝐨𝐭, 𝒾𝒹𝒾𝑜𝓉, …)
         /// to ASCII explicitly: NFKC does the same on .NET, but Unity's Mono runtime does not normalize
         /// supplementary-plane characters, and the hash must be identical on both hosts.
         /// </summary>
         private static string StripInvisible(string input)
         {
+            if (!NeedsStripping(input))
+            {
+                return input;
+            }
+
             var sb = new StringBuilder(input.Length);
             for (int i = 0; i < input.Length; i++)
             {
@@ -197,8 +259,33 @@ namespace ChatGuard.Core.Text
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Conservative pre-scan for <see cref="StripInvisible"/>: false only when its loop would copy every character
+        /// unchanged (no surrogates at all, even lone ones, no invisible characters, no non-whitespace controls).
+        /// </summary>
+        private static bool NeedsStripping(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (char.IsSurrogate(c) || CharacterMaps.IsInvisible(c) || (char.IsControl(c) && !char.IsWhiteSpace(c)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static string TryNormalize(string s, NormalizationForm form)
         {
+            // ASCII is stable under NFC, NFD, NFKC and NFKD, so IsNormalized/Normalize would return it unchanged.
+            // Checking first skips Mono's slow per-character IsNormalized (Normalize uses FormKC, Fold uses FormD).
+            if (IsAscii(s))
+            {
+                return s;
+            }
+
             try
             {
                 return s.IsNormalized(form) ? s : s.Normalize(form);
@@ -210,44 +297,74 @@ namespace ChatGuard.Core.Text
             }
         }
 
+        /// <summary>
+        /// Maps every whitespace-separated token of <paramref name="s"/> and joins them with single spaces. Nothing is
+        /// copied while the output is still a prefix of <paramref name="s"/> (first token at index 0, single U+0020
+        /// separators, <see cref="MapToken"/> returned null for every token), so such a message comes back as
+        /// <paramref name="s"/> itself, or, when <paramref name="s"/> ends in whitespace, as one Substring of
+        /// <paramref name="s"/> without that whitespace.
+        /// </summary>
         private static string MapTokens(string s)
         {
-            var sb = new StringBuilder(s.Length);
-            var token = new StringBuilder();
+            StringBuilder? sb = null;
+            int consumed = 0; // while sb is null, the output so far is s[0..consumed)
             bool pendingSpace = false;
-            foreach (char c in s)
+            int i = 0;
+            while (i < s.Length)
             {
-                if (char.IsWhiteSpace(c))
+                if (char.IsWhiteSpace(s[i]))
                 {
-                    if (token.Length > 0)
-                    {
-                        AppendToken(sb, token, ref pendingSpace);
-                    }
-
+                    i++;
                     continue;
                 }
 
-                token.Append(c);
+                int start = i;
+                while (i < s.Length && !char.IsWhiteSpace(s[i]))
+                {
+                    i++;
+                }
+
+                string? mapped = MapToken(s, start, i);
+                if (sb == null)
+                {
+                    // Appending the token keeps the output equal to s[0..i) when it is unmapped and starts the text,
+                    // or follows the previous token after exactly one ' '.
+                    bool extendsPrefix = pendingSpace ? (start == consumed + 1 && s[consumed] == ' ') : start == 0;
+                    if (mapped == null && extendsPrefix)
+                    {
+                        consumed = i;
+                        pendingSpace = true;
+                        continue;
+                    }
+
+                    sb = new StringBuilder(s.Length);
+                    sb.Append(s, 0, consumed);
+                }
+
+                if (pendingSpace)
+                {
+                    sb.Append(' ');
+                }
+
+                if (mapped == null)
+                {
+                    sb.Append(s, start, i - start);
+                }
+                else
+                {
+                    sb.Append(mapped);
+                }
+
+                pendingSpace = true;
             }
 
-            if (token.Length > 0)
+            if (sb != null)
             {
-                AppendToken(sb, token, ref pendingSpace);
+                return sb.ToString();
             }
 
-            return sb.ToString();
-        }
-
-        private static void AppendToken(StringBuilder output, StringBuilder token, ref bool pendingSpace)
-        {
-            if (pendingSpace)
-            {
-                output.Append(' ');
-            }
-
-            output.Append(MapToken(token.ToString()));
-            token.Length = 0;
-            pendingSpace = true;
+            // Unchanged prefix: s itself, or s without its trailing whitespace.
+            return consumed == s.Length ? s : s.Substring(0, consumed);
         }
 
         private enum Script
@@ -262,23 +379,27 @@ namespace ChatGuard.Core.Text
         /// Rewrites minority-script homoglyphs and leet characters toward the token's majority script.
         /// Leet is only applied when the token has at least as many letters as digits/symbols, so
         /// "1v1" and "2024" are untouched while "sh1t" and "b00bs" are mapped.
+        /// The token is <c>s[start..end)</c>. Returns null when no rewrite is needed (no letters, or neither mixed
+        /// scripts nor leet); otherwise returns the rebuilt token, which can still equal the input when none of its
+        /// characters has a mapping (for example the Greek-majority token "αβa").
+        /// Indices are absolute: <see cref="IsLeetCandidate"/> only compares them, so that equals token-relative indices.
         /// </summary>
-        private static string MapToken(string token)
+        private static string? MapToken(string s, int start, int end)
         {
             int latin = 0, cyrillic = 0, greek = 0, leetish = 0;
             int lastLetter = -1;
-            for (int i = 0; i < token.Length; i++)
+            for (int i = start; i < end; i++)
             {
-                char c = token[i];
+                char c = s[i];
                 if (CharacterMaps.IsLatinLetter(c) || CharacterMaps.IsCyrillicLetter(c) || CharacterMaps.IsGreekLetter(c) || char.IsLetter(c))
                 {
                     lastLetter = i;
                 }
             }
 
-            for (int i = 0; i < token.Length; i++)
+            for (int i = start; i < end; i++)
             {
-                char c = token[i];
+                char c = s[i];
                 if (CharacterMaps.IsLatinLetter(c))
                 {
                     latin++;
@@ -300,7 +421,7 @@ namespace ChatGuard.Core.Text
             int letters = latin + cyrillic + greek;
             if (letters == 0)
             {
-                return token;
+                return null;
             }
 
             Script majority = Script.Latin;
@@ -317,13 +438,13 @@ namespace ChatGuard.Core.Text
             bool mixed = (latin > 0 ? 1 : 0) + (cyrillic > 0 ? 1 : 0) + (greek > 0 ? 1 : 0) > 1;
             if (!mixed && !allowLeet)
             {
-                return token;
+                return null;
             }
 
-            var sb = new StringBuilder(token.Length);
-            for (int i = 0; i < token.Length; i++)
+            var sb = new StringBuilder(end - start);
+            for (int i = start; i < end; i++)
             {
-                char c = token[i];
+                char c = s[i];
                 bool leetHere = allowLeet && IsLeetCandidate(c, i, lastLetter);
                 char mapped;
                 if (majority == Script.Latin)

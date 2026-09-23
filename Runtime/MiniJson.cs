@@ -128,7 +128,8 @@ namespace ChatGuard.Unity
             }
         }
 
-        private static void WriteString(StringBuilder sb, string s)
+        /// <summary>Appends <paramref name="s"/> as a quoted JSON string; also used by <see cref="ChatGuardClient.BuildRequestJson"/>.</summary>
+        internal static void WriteString(StringBuilder sb, string s)
         {
             sb.Append('"');
             foreach (char c in s)
@@ -279,7 +280,25 @@ namespace ChatGuard.Unity
                 }
 
                 _i++;
+
+                // Fast path: scan to the first quote or backslash. A string without escapes (almost every key and value
+                // in a response) is then one Substring, exactly the characters the loop below would have appended.
+                // Otherwise the loop continues from the first backslash (or the end) with the plain prefix copied.
+                int start = _i;
+                while (_i < _s.Length && _s[_i] != '"' && _s[_i] != '\\')
+                {
+                    _i++;
+                }
+
+                if (_i < _s.Length && _s[_i] == '"')
+                {
+                    string plain = _s.Substring(start, _i - start);
+                    _i++;
+                    return plain;
+                }
+
                 var sb = new StringBuilder();
+                sb.Append(_s, start, _i - start);
                 while (_i < _s.Length)
                 {
                     char c = _s[_i++];
@@ -334,7 +353,9 @@ namespace ChatGuard.Unity
                     _i++;
                 }
 
-                if (start == _i || !double.TryParse(_s.Substring(start, _i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                // The span overload is what the string overload calls after its null check (on Mono and CoreCLR alike), so
+                // parsing the slice in place gives the same result without allocating the Substring.
+                if (start == _i || !double.TryParse(_s.AsSpan(start, _i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
                 {
                     throw new FormatException("Invalid number at " + start);
                 }

@@ -52,6 +52,12 @@ namespace ChatGuard.Core.Filtering
     /// </summary>
     public sealed class LocalFilter
     {
+        /// <summary>
+        /// Orders categories by their numeric value, which is what <c>List.Sort()</c> does by default;
+        /// <c>Comparer&lt;enum&gt;.Default</c> boxes every comparison on Unity's Mono and IL2CPP.
+        /// </summary>
+        private static readonly Comparison<VerdictCategory> ByValue = (a, b) => ((int)a).CompareTo((int)b);
+
         private readonly WordListCatalog _catalog;
         private readonly LocalFilterOptions _options;
 
@@ -107,8 +113,8 @@ namespace ChatGuard.Core.Filtering
                     else
                     {
                         // An allow rule without a category exempts exactly the term it names.
-                        string exempt = TextNormalizer.Fold(TextNormalizer.Normalize(allow.Pattern));
-                        hits.RemoveAll(h => TextNormalizer.Fold(TextNormalizer.Normalize(h.Term)) == exempt);
+                        string exempt = allow.Key;
+                        hits.RemoveAll(h => h.Key == exempt);
                     }
                 }
             }
@@ -128,14 +134,13 @@ namespace ChatGuard.Core.Filtering
                 }
             }
 
-            matched.Sort();
-            suppressed.Sort();
+            matched.Sort(ByValue);
+            suppressed.Sort(ByValue);
             return new LocalFilterResult(verdicts, blockRule, matched.ToArray(), suppressed.ToArray(), languages);
         }
 
         private string[] ResolveLanguages(string? language)
         {
-            var result = new List<string>(2);
             string primary = (language ?? string.Empty).Trim().ToLowerInvariant();
             if (primary.Length >= 2)
             {
@@ -147,13 +152,12 @@ namespace ChatGuard.Core.Filtering
                 primary = _options.FallbackLanguage;
             }
 
-            result.Add(primary);
             if (_options.AlwaysApplyEnglish && primary != "en" && _catalog.Get("en") != null)
             {
-                result.Add("en");
+                return new[] { primary, "en" };
             }
 
-            return result.ToArray();
+            return new[] { primary };
         }
     }
 }

@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using ChatGuard.Core;
 using ChatGuard.Unity;
@@ -58,6 +59,98 @@ namespace ChatGuard.Tests
             Assert.That(MiniJson.GetString(MiniJson.GetObject(root, "channel"), "type"), Is.EqualTo("team"));
             Assert.That(MiniJson.AsArray(root["thread"])!.Count, Is.EqualTo(1));
             Assert.That(root.ContainsKey("request_id"), Is.False);
+        }
+
+        // The exact strings below were captured from the 0.2.1 serializer (a Dictionary tree written by MiniJson.Write),
+        // so they pin the request bytes: key order, which fields are omitted, escaping, and the last-5 thread window.
+        private static ChatGuardClient DefaultsClient()
+        {
+            return new ChatGuardClient("cg_test_x", "https://api.example.com");
+        }
+
+        [Test]
+        public void RequestJson_Minimal_ExactString()
+        {
+            string json = DefaultsClient().BuildRequestJson(new ModerationRequest("hi"));
+            Assert.That(json, Is.EqualTo("{\"message\":\"hi\",\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_AuthorCounts_ExactString()
+        {
+            ChatGuardClient client = DefaultsClient();
+            string both = client.BuildRequestJson(new ModerationRequest("gg", "p1") { accountAgeDays = 30, priorWarnings = 0 });
+            Assert.That(both, Is.EqualTo("{\"message\":\"gg\",\"author\":{\"id\":\"p1\",\"account_age_days\":30,\"prior_warnings\":0},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+            string countOnly = client.BuildRequestJson(new ModerationRequest("gg") { accountAgeDays = -1, priorWarnings = 2 });
+            Assert.That(countOnly, Is.EqualTo("{\"message\":\"gg\",\"author\":{\"prior_warnings\":2},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_NullMessageAndExtremeCounts_ExactString()
+        {
+            var request = new ModerationRequest { message = null!, authorId = string.Empty, accountAgeDays = int.MaxValue, priorWarnings = -5, thread = null!, requestId = string.Empty };
+            string json = DefaultsClient().BuildRequestJson(request);
+            Assert.That(json, Is.EqualTo("{\"message\":\"\",\"author\":{\"account_age_days\":2147483647},\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_SendsLastFiveThreadEntries_ExactString()
+        {
+            var request = new ModerationRequest("reply", "p1")
+            {
+                thread = new List<ThreadEntry>
+                {
+                    new ThreadEntry("p0", "dropped: only the last 5 are sent"),
+                    new ThreadEntry("p2", "one"),
+                    new ThreadEntry(null!, "no author"),
+                    new ThreadEntry("p3", null!),
+                    new ThreadEntry("p4", string.Empty),
+                    new ThreadEntry("p5", "five"),
+                },
+            };
+            string json = DefaultsClient().BuildRequestJson(request);
+            Assert.That(json, Is.EqualTo("{\"message\":\"reply\",\"author\":{\"id\":\"p1\"},\"thread\":[{\"author\":\"p2\",\"text\":\"one\"},{\"author\":\"unknown\",\"text\":\"no author\"},{\"author\":\"p3\",\"text\":\"\"},{\"author\":\"p4\",\"text\":\"\"},{\"author\":\"p5\",\"text\":\"five\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_NullThreadEntry_OutsideWindowIgnored_InsideWindowThrows()
+        {
+            ChatGuardClient client = DefaultsClient();
+            var outside = new ModerationRequest("m") { thread = new List<ThreadEntry> { null!, new ThreadEntry("a", "1"), new ThreadEntry("b", "2"), new ThreadEntry("c", "3"), new ThreadEntry("d", "4"), new ThreadEntry("e", "5") } };
+            Assert.That(client.BuildRequestJson(outside), Is.EqualTo("{\"message\":\"m\",\"thread\":[{\"author\":\"a\",\"text\":\"1\"},{\"author\":\"b\",\"text\":\"2\"},{\"author\":\"c\",\"text\":\"3\"},{\"author\":\"d\",\"text\":\"4\"},{\"author\":\"e\",\"text\":\"5\"}],\"channel\":{\"type\":\"global\",\"language\":\"en\",\"age_rating\":\"16+\"}}"));
+
+            var inside = new ModerationRequest("m") { thread = new List<ThreadEntry> { new ThreadEntry("a", "1"), null!, new ThreadEntry("c", "3") } };
+            Assert.Throws<NullReferenceException>(() => client.BuildRequestJson(inside));
+        }
+
+        [Test]
+        public void RequestJson_ChannelOmittedWhenEverythingEmpty_ExactString()
+        {
+            var client = new ChatGuardClient("cg_test_x", "https://api.example.com", language: string.Empty, channelType: string.Empty, ageRating: null);
+            Assert.That(client.BuildRequestJson(new ModerationRequest("hi")), Is.EqualTo("{\"message\":\"hi\"}"));
+            Assert.That(client.BuildRequestJson(new ModerationRequest("hi") { language = "de", ageRating = "18+" }), Is.EqualTo("{\"message\":\"hi\",\"channel\":{\"language\":\"de\",\"age_rating\":\"18+\"}}"));
+        }
+
+        [Test]
+        public void RequestJson_EscapesQuotesControlCharsSurrogatesAndNonAscii_ExactString()
+        {
+            var request = new ModerationRequest("q\"b\\s/ \b\f\n\r\t\u0000\u0001\u001f\u007f \ud800 x\udc00 \u2028\u2029 \u0442\u044b \u4f60\u597d \ud83c\udfae", "id\"\\\n")
+            {
+                thread = new List<ThreadEntry> { new ThreadEntry("\ud83d", "caf\u00e9\u0007") },
+                channelType = "te\tam",
+                language = "\u00fc",
+                ageRating = "16+\"",
+            };
+            string json = DefaultsClient().BuildRequestJson(request);
+            Assert.That(json, Is.EqualTo("{\"message\":\"q\\\"b\\\\s/ \\b\\f\\n\\r\\t\\u0000\\u0001\\u001f\u007f \ud800 x\udc00 \u2028\u2029 \u0442\u044b \u4f60\u597d \ud83c\udfae\",\"author\":{\"id\":\"id\\\"\\\\\\n\"},\"thread\":[{\"author\":\"\ud83d\",\"text\":\"caf\u00e9\\u0007\"}],\"channel\":{\"type\":\"te\\tam\",\"language\":\"\u00fc\",\"age_rating\":\"16+\\\"\"}}"));
+            Assert.That(MiniJson.GetString(MiniJson.AsObject(MiniJson.Parse(json)), "message"), Is.EqualTo(request.message));
+        }
+
+        [Test]
+        public void RequestJson_RequestId_ExactString()
+        {
+            string json = DefaultsClient().BuildRequestJson(new ModerationRequest("hi") { requestId = "req-42", channelType = "team", language = "ru" });
+            Assert.That(json, Is.EqualTo("{\"message\":\"hi\",\"channel\":{\"type\":\"team\",\"language\":\"ru\",\"age_rating\":\"16+\"},\"request_id\":\"req-42\"}"));
         }
 
         [Test]
