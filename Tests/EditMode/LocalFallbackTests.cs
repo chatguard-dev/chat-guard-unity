@@ -3,21 +3,21 @@ using System;
 using System.Collections;
 using System.Threading;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using NUnit.Framework;
 
 namespace ChatGuard.Tests
 {
     public class LocalFallbackTests
     {
-        // The offline path completes synchronously, so plain [Test]s can read op.Result right away.
+        // Without an API key, Moderate completes synchronously with the offline fallback (the local filter by default),
+        // so plain [Test]s can read op.Result right away.
         [Test]
         public void NoKey_UsesLocalFilter()
         {
             var client = new ChatGuardClient(string.Empty, "https://api.example.com");
             ModerationOperation op = client.Moderate(new ModerationRequest("you idiot"));
             Assert.That(op.IsDone, Is.True);
-            Assert.That(op.IsCancelled, Is.False);
+            Assert.That(op.IsCanceled, Is.False);
             Assert.That(op.keepWaiting, Is.False);
             ModerationResult result = op.Result!;
             Assert.That(result, Is.Not.Null);
@@ -126,7 +126,7 @@ namespace ChatGuard.Tests
                 Assert.That(active.ApiKey, Is.Empty);
                 Assert.That(ChatGuardSdk.Client.HasServer, Is.False);
 
-                // Configure again swaps the shared client.
+                // Calling Configure again replaces the shared client.
                 ChatGuardSdk.Configure(new ChatGuardSettings { OfflineBehavior = OfflineBehavior.AllowAll });
                 Assert.That(ChatGuardSdk.Moderate("gg").Result!.Action, Is.EqualTo(ModerationAction.Allow));
             }
@@ -145,7 +145,7 @@ namespace ChatGuard.Tests
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(new ChatGuardSettings { BaseUrl = "api.example.com" }));
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(new ChatGuardSettings { BaseUrl = "ftp://api.example.com" }));
 
-            // An empty key is valid (local filter only); the client copies the settings and trims the URL.
+            // An empty key is valid (local filter only). The client copies the settings and trims the trailing slash.
             var settings = new ChatGuardSettings { BaseUrl = "https://api.example.com/", ChannelType = "team" };
             var client = new ChatGuardClient(settings);
             Assert.That(client.HasServer, Is.False);
@@ -166,7 +166,7 @@ namespace ChatGuard.Tests
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(new ChatGuardSettings { TimeoutSeconds = ChatGuardSettings.MaxTimeoutSeconds + 1f }));
             Assert.Throws<ArgumentException>(() => new ChatGuardClient(string.Empty, string.Empty, timeoutSeconds: float.PositiveInfinity));
 
-            // The cap itself and small positive budgets are fine.
+            // The cap itself and a small positive timeout are valid.
             Assert.DoesNotThrow(() => new ChatGuardSettings { TimeoutSeconds = ChatGuardSettings.MaxTimeoutSeconds }.Validate());
             Assert.DoesNotThrow(() => new ChatGuardSettings { TimeoutSeconds = 0.25f }.Validate());
         }
@@ -208,7 +208,7 @@ namespace ChatGuard.Tests
             Assert.That(ChatGuardSettings.DefaultBaseUrl, Is.EqualTo("https://api.chatguard.dev"));
             Assert.That(new ChatGuardSettings().BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
 
-            // Every way of passing only a key, including a blank URL, sends requests to the default API.
+            // Every way of passing only a key, including a null, empty or blank URL, sends requests to the default API.
             var clients = new[]
             {
                 new ChatGuardClient("cg_test_x"),
@@ -225,7 +225,7 @@ namespace ChatGuard.Tests
                 Assert.That(client.Settings.BaseUrl, Is.EqualTo(ChatGuardSettings.DefaultBaseUrl));
             }
 
-            // Another origin still works, without surrounding blanks or a trailing slash.
+            // A custom base URL is kept, minus surrounding blanks and the trailing slash.
             Assert.That(new ChatGuardClient("cg_test_x", " https://proxy.example.com/cg/ ").Settings.BaseUrl, Is.EqualTo("https://proxy.example.com/cg"));
 
             try
@@ -242,7 +242,7 @@ namespace ChatGuard.Tests
                 ChatGuardSdk.Reset();
             }
 
-            // A config asset saved before 0.4.0 with an empty URL gets the default as well.
+            // A config asset with a key and an empty URL also reaches the default API.
             var config = UnityEngine.ScriptableObject.CreateInstance<ChatGuardConfig>();
             try
             {
@@ -323,8 +323,8 @@ namespace ChatGuard.Tests
             }
         }
 
-        // The offline path completes synchronously and the awaiter runs its continuation inline, so the async void
-        // helper has already stored the result (or the exception) by the time it returns.
+        // The offline fallback completes the operation before AwaitInto runs, so its await does not suspend: the result
+        // (or the exception) is stored by the time AwaitInto returns.
         [Test]
         public void Await_AlreadyCompletedOfflineOperation_DeliversResultInline()
         {
@@ -344,7 +344,7 @@ namespace ChatGuard.Tests
         }
 
         [Test]
-        public void Await_CancelledOperation_ThrowsOperationCanceledException()
+        public void Await_CanceledOperation_ThrowsOperationCanceledException()
         {
             var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
             ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"));
@@ -352,19 +352,19 @@ namespace ChatGuard.Tests
 
             op.Cancel();
             Assert.That(op.IsDone, Is.True);
-            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.IsCanceled, Is.True);
 
             ModerationResult? awaited = null;
             Exception? error = null;
             AwaitInto(op, r => awaited = r, ex => error = ex);
 
             Assert.That(awaited, Is.Null);
-            Assert.That(error, Is.TypeOf<OperationCanceledException>(), "awaiting a cancelled operation must throw");
+            Assert.That(error, Is.TypeOf<OperationCanceledException>(), "awaiting a canceled operation must throw");
             Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(CancellationToken.None), "Cancel() is not a token");
         }
 
         [Test]
-        public void Token_AlreadyCancelled_ReturnsCancelledOperationWithoutSending()
+        public void Token_AlreadyCanceled_ReturnsCanceledOperationWithoutSending()
         {
             var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
             using var cts = new CancellationTokenSource();
@@ -372,13 +372,13 @@ namespace ChatGuard.Tests
             int completedCalls = 0;
             ModerationOperation op = client.Moderate(new ModerationRequest("you idiot", "p1"), _ => completedCalls++, cts.Token);
             Assert.That(op.IsDone, Is.True);
-            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.IsCanceled, Is.True);
             Assert.That(op.Result, Is.Null);
             Assert.That(completedCalls, Is.EqualTo(0));
 
-            // Without a server too: a cancelled token wins over the synchronous offline fallback.
+            // Without an API key too: an already-canceled token wins over the synchronous offline fallback.
             ModerationOperation offline = new ChatGuardClient(string.Empty, string.Empty).Moderate(new ModerationRequest("you idiot"), cts.Token);
-            Assert.That(offline.IsCancelled, Is.True);
+            Assert.That(offline.IsCanceled, Is.True);
             Assert.That(offline.Result, Is.Null);
 
             Exception? error = null;
@@ -388,7 +388,7 @@ namespace ChatGuard.Tests
         }
 
         [Test]
-        public void Token_CancelledWhileInFlight_EndsTheOperationLikeCancel()
+        public void Token_CanceledWhileInFlight_EndsTheOperationLikeCancel()
         {
             var client = new ChatGuardClient("cg_test_" + new string('x', 32), "http://127.0.0.1:9", timeoutSeconds: 1f);
             using var cts = new CancellationTokenSource();
@@ -401,8 +401,8 @@ namespace ChatGuard.Tests
             AwaitInto(op, r => awaited = r, ex => error = ex);
             cts.Cancel();
 
-            Assert.That(op.IsDone, Is.True, "a token cancelled on the main thread ends the operation right away");
-            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.IsDone, Is.True, "a token canceled on the main thread ends the operation right away");
+            Assert.That(op.IsCanceled, Is.True);
             Assert.That(op.Result, Is.Null);
             Assert.That(completedCalls, Is.EqualTo(0));
             Assert.That(awaited, Is.Null);
@@ -423,14 +423,15 @@ namespace ChatGuard.Tests
             op.Cancel();
             cts.Cancel();
 
-            Assert.That(op.IsCancelled, Is.True);
+            Assert.That(op.IsCanceled, Is.True);
             Assert.That(op.Result, Is.Null);
             Assert.That(error, Is.TypeOf<OperationCanceledException>());
             Assert.That(((OperationCanceledException)error!).CancellationToken, Is.EqualTo(CancellationToken.None), "op.Cancel() ended it, not the token");
         }
 
-        // Moderate registers with the token while execution-context flow is suppressed, and must leave the flow as it
-        // found it: restored when it suppressed it, still suppressed when the caller had (SuppressFlow would throw then).
+        // Moderate suppresses execution-context flow while it registers with the token, then must leave the flow as it
+        // found it: restored if Moderate suppressed it, still suppressed if the caller had (a second SuppressFlow
+        // would throw).
         [Test]
         public void Token_RegisteredWithOrWithoutSuppressedFlow_CancelsAndLeavesTheFlowAsItWas()
         {
@@ -458,8 +459,8 @@ namespace ChatGuard.Tests
             AwaitInto(suppressed, _ => { }, ex => errors[1] = ex);
             cts.Cancel();
 
-            Assert.That(plain.IsCancelled, Is.True);
-            Assert.That(suppressed.IsCancelled, Is.True);
+            Assert.That(plain.IsCanceled, Is.True);
+            Assert.That(suppressed.IsCanceled, Is.True);
             foreach (Exception? error in errors)
             {
                 Assert.That(error, Is.TypeOf<OperationCanceledException>());
@@ -468,7 +469,7 @@ namespace ChatGuard.Tests
         }
 
         [Test]
-        public void Token_CancelledAfterCompletion_ChangesNothing()
+        public void Token_CanceledAfterCompletion_ChangesNothing()
         {
             var client = new ChatGuardClient(string.Empty, string.Empty);
             using var cts = new CancellationTokenSource();
@@ -478,7 +479,7 @@ namespace ChatGuard.Tests
             Assert.That(result, Is.Not.Null);
 
             cts.Cancel();
-            Assert.That(op.IsCancelled, Is.False);
+            Assert.That(op.IsCanceled, Is.False);
             Assert.That(op.Result, Is.SameAs(result));
         }
 
@@ -497,11 +498,11 @@ namespace ChatGuard.Tests
                 Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), live.Token).Result, Is.Not.Null);
                 Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), _ => { }, live.Token).Result, Is.Not.Null);
 
-                using var cancelled = new CancellationTokenSource();
-                cancelled.Cancel();
-                Assert.That(ChatGuardSdk.Moderate("gg", "p1", cancelled.Token).IsCancelled, Is.True);
-                Assert.That(ChatGuardSdk.Moderate("gg", "p1", _ => Assert.Fail("callback after cancel"), cancelled.Token).IsCancelled, Is.True);
-                Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), cancelled.Token).IsCancelled, Is.True);
+                using var canceled = new CancellationTokenSource();
+                canceled.Cancel();
+                Assert.That(ChatGuardSdk.Moderate("gg", "p1", canceled.Token).IsCanceled, Is.True);
+                Assert.That(ChatGuardSdk.Moderate("gg", "p1", _ => Assert.Fail("callback after cancel"), canceled.Token).IsCanceled, Is.True);
+                Assert.That(ChatGuardSdk.Moderate(new ModerationRequest("gg", "p1"), canceled.Token).IsCanceled, Is.True);
             }
             finally
             {
@@ -509,7 +510,9 @@ namespace ChatGuard.Tests
             }
         }
 
-        /// <summary>Awaits the operation and hands the outcome to a callback; catches everything so nothing escapes the async void.</summary>
+        /// <summary>
+        /// Awaits the operation and hands the result or exception to a callback, so nothing escapes the async void.
+        /// </summary>
         private static async void AwaitInto(ModerationOperation op, Action<ModerationResult> onResult, Action<Exception> onError)
         {
             try

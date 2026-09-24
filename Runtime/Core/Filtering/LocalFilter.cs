@@ -7,14 +7,17 @@ namespace ChatGuard.Core.Filtering
 {
     public sealed class LocalFilterOptions
     {
-        /// <summary>Apply the English list in addition to the requested language (English abuse is universal in game chat).</summary>
+        /// <summary>
+        /// Also check the English list when another language is used (default true), since English abuse turns up in
+        /// game chat everywhere.
+        /// </summary>
         public bool AlwaysApplyEnglish { get; set; } = true;
 
-        /// <summary>Language used when the requested one has no list.</summary>
+        /// <summary>Language used when the requested one is empty or has no list (default <c>en</c>).</summary>
         public string FallbackLanguage { get; set; } = "en";
     }
 
-    /// <summary>Result of the dictionary filter. Probabilities are 0 or 1 only.</summary>
+    /// <summary>What the local filter found in one message. Its verdicts are always 0 or 1.</summary>
     public sealed class LocalFilterResult
     {
         internal LocalFilterResult(
@@ -31,30 +34,48 @@ namespace ChatGuard.Core.Filtering
             AppliedLanguages = appliedLanguages;
         }
 
+        /// <summary>1 for each category in <see cref="MatchedCategories"/>, 0 for the rest.</summary>
         public VerdictSet Verdicts { get; }
 
+        /// <summary>
+        /// True when a project block rule matched; word-list matches do not count. A hit always blocks the message.
+        /// </summary>
         public bool BlockListHit { get { return BlockRule != null; } }
 
+        /// <summary>The first block rule that matched, or null.</summary>
         public CustomRule? BlockRule { get; }
 
-        /// <summary>Categories with p = 1 after allow rules were applied.</summary>
+        /// <summary>Categories the word lists found after allow rules were applied, sorted by enum value.</summary>
         public VerdictCategory[] MatchedCategories { get; }
 
-        /// <summary>Categories an allow rule with a category matched; the API also zeroes the model verdict for these.</summary>
+        /// <summary>
+        /// Categories named by matching allow rules, sorted by enum value. See <see cref="CustomRule.Category"/>.
+        /// </summary>
         public VerdictCategory[] SuppressedCategories { get; }
 
+        /// <summary>
+        /// Language codes checked: the resolved language, then <c>en</c> when
+        /// <see cref="LocalFilterOptions.AlwaysApplyEnglish"/> adds it.
+        /// </summary>
         public string[] AppliedLanguages { get; }
     }
 
     /// <summary>
-    /// The dictionary-based fallback used when Jev is unavailable, over quota, or offline, and the
-    /// pre-check that turns project block-list hits into an immediate block without a model call.
+    /// The local filter: checks a message against word lists (the built-in ones by default) and, optionally, a
+    /// project's allow and block rules. It never calls the moderation model (Jev).
     /// </summary>
+    /// <remarks>
+    /// It answers when the model cannot, and those results are degraded (see <see cref="DegradedReason"/>). The server
+    /// also runs it before the model on every message, so a block-rule hit skips the model. The Unity client runs it
+    /// only with <c>OfflineBehavior.LocalFilter</c> (the default), to answer when the server gives no usable answer
+    /// and, if <c>LocalFilterWhenDegraded</c> is on, to re-check degraded server answers. One instance can be shared
+    /// between threads.
+    /// </remarks>
     public sealed class LocalFilter
     {
         /// <summary>
-        /// Orders categories by their numeric value, which is what <c>List.Sort()</c> does by default;
-        /// <c>Comparer&lt;enum&gt;.Default</c> boxes every comparison on Unity's Mono and IL2CPP.
+        /// Sorts by numeric value, as <c>List.Sort()</c> would, without boxing: <c>Comparer&lt;enum&gt;.Default</c>
+        /// boxes every comparison on Unity's Mono and IL2CPP.
         /// </summary>
         private static readonly Comparison<VerdictCategory> ByValue = (a, b) => ((int)a).CompareTo((int)b);
 
@@ -74,6 +95,14 @@ namespace ChatGuard.Core.Filtering
 
         public WordListCatalog Catalog { get { return _catalog; } }
 
+        /// <summary>Checks <paramref name="message"/> against the word lists and, when given, project rules.</summary>
+        /// <param name="message">The message, from <see cref="NormalizedMessage.Create"/>.</param>
+        /// <param name="language">
+        /// A language code such as <c>en</c> or <c>pt-BR</c>, trimmed and lowercased; only the first two characters
+        /// count. A null, empty or unknown code uses <see cref="LocalFilterOptions.FallbackLanguage"/>.
+        /// </param>
+        /// <param name="rules">A project's allow and block rules, or null to check the word lists only.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="message"/> is null.</exception>
         public LocalFilterResult Evaluate(NormalizedMessage message, string? language, CompiledRuleSet? rules = null)
         {
             if (message == null)

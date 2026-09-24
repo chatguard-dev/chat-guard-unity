@@ -3,19 +3,22 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-// Minimal relay for client-authoritative games (no dedicated server): clients never see the Chat Guard key.
+// Minimal relay for games with no dedicated server (peer-to-peer or client-hosted). Games call this service
+// instead of Chat Guard, so your cg_live_ key never ships in a game build.
 //   CHATGUARD_API_KEY=cg_live_... RELAY_SHARED_SECRET=... dotnet run
-// CHATGUARD_BASE_URL is optional and defaults to the Chat Guard API, https://api.chatguard.dev.
-// Clients send  POST /chat  { "message", "author_id", "channel_type", "language" }  with header X-Relay-Secret.
-// In a real game, replace the shared secret with your session/auth token validation and forward only
-// after checking the sender is who they claim to be.
+// CHATGUARD_BASE_URL is optional (default https://api.chatguard.dev).
+// Games send  POST /chat  { "message", "author_id", "channel_type", "language" }  with header X-Relay-Secret.
+// author_id is your stable player id, never a real name or email. The reply is the POST /v1/moderate answer as is,
+// or the degraded answer below; ChatGuardClient.TryParseResponse turns either into a ModerationResult.
+// Without RELAY_SHARED_SECRET anyone can call the relay. In a real game, replace the secret with your own player
+// authentication and forward only messages whose sender you have verified.
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 string apiKey = builder.Configuration["CHATGUARD_API_KEY"] ?? throw new InvalidOperationException("CHATGUARD_API_KEY is required");
 string baseUrl = (builder.Configuration["CHATGUARD_BASE_URL"] ?? "https://api.chatguard.dev").TrimEnd('/');
 string sharedSecret = builder.Configuration["RELAY_SHARED_SECRET"] ?? string.Empty;
 
-// Fields the game left out are not sent, so Chat Guard applies the project's defaults (its language, for example).
+// Null fields are not sent, so a game that sends no language gets the project's default.
 var json = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
 builder.Services.AddHttpClient("chatguard", http =>
@@ -47,9 +50,9 @@ app.MapPost("/chat", async (RelayRequest request, HttpContext http, IHttpClientF
         request_id = Guid.NewGuid().ToString(),
     };
 
-    // Fail open or closed is your product decision; here we fail open with a marker the client can show. The reasons
-    // are ones the Unity package reads (DegradedReason): upstream_rate_limit for a 429, timeout when no answer came
-    // within the 3 s above, upstream for any other error.
+    // When the call to Chat Guard fails, you choose to deliver the message (fail open) or block it (fail closed).
+    // This example fails open: it answers allow with degraded=true and a degraded_reason the Unity package reads as
+    // DegradedReason.
     try
     {
         using HttpResponseMessage response = await clients.CreateClient("chatguard").PostAsJsonAsync("/v1/moderate", payload, json, ct);
@@ -64,6 +67,7 @@ app.MapPost("/chat", async (RelayRequest request, HttpContext http, IHttpClientF
     }
     catch (TaskCanceledException) when (!ct.IsCancellationRequested)
     {
+        // HttpClient's own timeout. When ct is canceled instead, the game hung up and needs no answer.
         return Degraded("timeout", null);
     }
     catch (HttpRequestException ex)

@@ -3,17 +3,16 @@ using System;
 using System.Globalization;
 using System.Text;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using NUnit.Framework;
 using Unity.Collections;
 
 namespace ChatGuard.Tests
 {
     /// <summary>
-    /// Moderate reads a 200 body with ModerationResponseReader and falls back to DownloadHandler.text +
-    /// ChatGuardClient.TryParseResponse for whatever the reader does not handle. These tests check that every body the
-    /// reader handles gives exactly TryParseResponse's result for its UTF-8 text, and that the unusual bodies are left
-    /// to TryParseResponse.
+    /// The client reads a 200 body straight from its bytes with <c>ModerationResponseReader</c>. Any body the reader
+    /// does not handle goes through <c>DownloadHandler.text</c> and <c>ChatGuardClient.TryParseResponse</c> instead.
+    /// These tests check that a handled body gives exactly TryParseResponse's result for its UTF-8 text, and that
+    /// unusual bodies are left to TryParseResponse.
     /// </summary>
     public class ResponseReaderTests
     {
@@ -39,9 +38,9 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// The byte reader must return null for this body. Moderate computes
-        /// <c>TryReadPlainResponse(...) ?? TryParseResponse(downloadHandler.text, ...)</c>, so a null here means the body
-        /// gets exactly TryParseResponse's result, as it did before the reader existed.
+        /// The byte reader must return null for this body. The client computes
+        /// <c>TryReadPlainResponse(...) ?? TryParseResponse(downloadHandler.text, ...)</c>, so null means the body gets
+        /// exactly TryParseResponse's result.
         /// </summary>
         private static void AssertNotHandled(string json)
         {
@@ -49,7 +48,7 @@ namespace ChatGuard.Tests
             Assert.That(ModerationResponseReader.TryRead(bytes, bytes.Length, Latency), Is.Null, "the byte reader must leave this to TryParseResponse: " + json);
         }
 
-        /// <summary>Every field, doubles compared bit for bit.</summary>
+        /// <summary>Asserts that every field matches, comparing doubles bit for bit.</summary>
         internal static void AssertSameResult(ModerationResult expected, ModerationResult actual, string context)
         {
             Assert.That(actual.Action, Is.EqualTo(expected.Action), "Action: " + context);
@@ -178,7 +177,8 @@ namespace ChatGuard.Tests
         [Test]
         public void UnusualBodies_AreLeftToTryParseResponse()
         {
-            // Raw non-ASCII, a BOM, control bytes, backslashes (escapes), DEL.
+            // Raw non-ASCII, a BOM, DEL, backslash escapes, and control bytes other than tab, LF and CR (even \v and
+            // \f, which MiniJson skips as whitespace).
             AssertNotHandled(Sample.Replace("jev-1.13.0", "j\u00e9v"));
             AssertNotHandled("\ufeff" + Sample);
             AssertNotHandled(Sample.Replace("\"cached\"", "\u000b\"cached\""));
@@ -192,7 +192,7 @@ namespace ChatGuard.Tests
             AssertNotHandled(Sample.Replace("2026-09-23T00:00:00+00:00", "a\\\"b"));
             AssertNotHandled(Sample.Replace("\"hide\"", "\"h\\u0069de\""));
 
-            // Not an object, invalid JSON, trailing content.
+            // Not an object, no action, invalid JSON, trailing content.
             foreach (string json in new[] { "", " ", "[]", "\"hide\"", "1", "null", "true", "{}", "{\"action\":\"hide\",}", "{\"action\":\"hide\"", "{\"action\" \"hide\"}", "{action:\"hide\"}", "{'action':'hide'}", "{\"action\":\"hide\"}}", "{\"action\":\"hide\"} x", "{\"action\":\"hide\"}{}", "{\"action\":\"hide\",\"a\":[1,]}", "{\"action\":\"hide\",\"a\":[,1]}", "{\"action\":\"hide\",\"a\":tru}", "{\"action\":\"hide\",\"a\":nul}", "{\"action\":\"hide\",\"a\":undefined}", "{\"action\":\"hide\",\"a\":NaN}", "{\"action\":\"hide\",\"a\":Infinity}", "{\"action\":\"hide\",,\"a\":1}", "{,\"action\":\"hide\"}", "{\"action\":\"hide\" \"a\":1}" })
             {
                 AssertNotHandled(json);
@@ -204,7 +204,7 @@ namespace ChatGuard.Tests
                 AssertNotHandled(Sample.Substring(0, i));
             }
 
-            // Duplicate known keys at every level.
+            // Duplicate known keys at every level (MiniJson keeps the last value).
             AssertNotHandled(Sample.Replace("\"action\":\"hide\"", "\"action\":\"hide\",\"action\":\"allow\""));
             AssertNotHandled(Sample.Replace("\"model\":\"jev-1.13.0\"", "\"model\":\"a\",\"model\":\"b\""));
             AssertNotHandled(Sample.Replace("\"id\":\"019...\"", "\"id\":\"a\",\"id\":null"));
@@ -222,7 +222,7 @@ namespace ChatGuard.Tests
             AssertNotHandled(Sample.Replace("\"used\":12345", "\"used\":12345,\"used\":1"));
             AssertNotHandled(Sample.Replace("\"limit\":50000", "\"limit\":50000,\"limit\":1"));
 
-            // Known keys with an unexpected JSON type.
+            // Known keys with an unexpected JSON type, and a missing action.
             foreach (string replacement in new[]
             {
                 "\"action\":1", "\"action\":null", "\"action\":true", "\"action\":[\"hide\"]", "\"action\":{\"v\":\"hide\"}",
@@ -275,7 +275,7 @@ namespace ChatGuard.Tests
                 AssertNotHandled(Sample.Replace("\"degraded_reason\":null", "\"degraded_reason\":\"" + reason + "\""));
             }
 
-            // Numbers MiniJson's parser rejects, and tokens longer than the reader handles.
+            // Numbers MiniJson rejects, and number tokens longer than MaxNumberLength.
             foreach (string n in new[] { "1.2.3", "--1", "+-1", "1e", "-", ".", "e5", "1e+", "0x10" })
             {
                 AssertNotHandled(Sample.Replace("\"severity\":1.815", "\"severity\":" + n));
@@ -284,18 +284,19 @@ namespace ChatGuard.Tests
             AssertNotHandled(Sample.Replace("\"severity\":1.815", "\"severity\":0." + new string('1', ModerationResponseReader.MaxNumberLength)));
             AssertNotHandled(Sample.Replace("\"latency_ms\":212", "\"latency_ms\":" + new string('2', ModerationResponseReader.MaxNumberLength + 1)));
 
-            // Nesting deeper than the reader handles.
+            // Nesting one level deeper than MaxDepth.
             AssertNotHandled("{\"action\":\"allow\",\"deep\":" + new string('[', ModerationResponseReader.MaxDepth) + new string(']', ModerationResponseReader.MaxDepth) + "}");
         }
 
         /// <summary>
-        /// A truncated body is left to TryParseResponse, which returns null for it, so Moderate reports every truncation
-        /// as an unparseable response rather than an exception message.
+        /// A truncated body is left to TryParseResponse, which returns null instead of throwing. The client then
+        /// reports every truncation as <c>"unparseable response"</c>, not as an exception message.
         /// </summary>
         [Test]
         public void EveryTruncation_IsUnparseableOnBothPaths()
         {
-            // Pretty ends with a newline; without it, every shorter prefix is cut before the closing brace.
+            // TrimEnd drops Pretty's final newline, so every prefix stops before the closing brace. Untrimmed, the
+            // longest prefix would be the whole object.
             foreach (string body in new[] { Sample, Pretty.TrimEnd() })
             {
                 for (int i = 0; i < body.Length; i++)
@@ -321,9 +322,10 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// Moderate reads the body from DownloadHandler.nativeData. The sample is padded with trailing whitespace, which
-        /// the byte reader handles, so only the length decides: up to MaxBodyLength it is handled from native memory,
-        /// one byte more is left to TryParseResponse without being copied.
+        /// The client reads the body from <c>DownloadHandler.nativeData</c>. The sample is padded with trailing spaces,
+        /// which the reader skips, so only the length matters. The native overload handles up to <c>MaxBodyLength</c>
+        /// bytes and leaves a longer body to TryParseResponse without copying it. The <c>byte[]</c> overload has no
+        /// length cap.
         /// </summary>
         [Test]
         public void NativeBody_IsHandledUpToMaxBodyLength()
@@ -474,7 +476,7 @@ namespace ChatGuard.Tests
 
                         break;
                     default:
-                        // Digits are where most accepted mutations come from: change one inside a number.
+                        // Most handled mutations come from here: replace the next digit (in a number or a string).
                         int digit = bytes.FindIndex(at < bytes.Count ? at : 0, b => b >= (byte)'0' && b <= (byte)'9');
                         if (digit >= 0)
                         {
@@ -502,11 +504,10 @@ namespace ChatGuard.Tests
                 Assert.That(ModerationResponseReader.IsUtf8ContentType(handled), Is.True, handled ?? "null");
             }
 
-            // Another charset, a value DownloadHandler.text would pass to Encoding.GetEncoding as something other than
-            // "utf-8" (it may log a warning and fall back to UTF-8), or a header with a character outside printable
-            // ASCII (the tab and NBSP cases: DownloadHandler.text trims those away and decodes UTF-8, but
-            // IsUtf8ContentType declines any such header): all are left to the string path, which decodes them as it
-            // always did.
+            // IsUtf8ContentType declines these, so DownloadHandler.text decodes them itself: another charset, a charset
+            // value DownloadHandler.text would pass to Encoding.GetEncoding as something other than "utf-8" (it may then
+            // warn and fall back to UTF-8), and any header with a character outside printable ASCII. That includes tab
+            // and NBSP, although DownloadHandler.text trims them and decodes UTF-8.
             foreach (string notHandled in new[]
             {
                 "application/json; charset=utf-16", "application/json; charset=utf8", "application/json; charset=iso-8859-1",

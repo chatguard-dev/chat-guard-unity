@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace ChatGuard.Core.Scoring
 {
-    /// <summary>An action together with the threshold rules that produced it (for the dashboard test panel).</summary>
+    /// <summary>An action and the threshold rules that produced it, for the dashboard's test panel.</summary>
     public sealed class ActionDecision
     {
         public ActionDecision(ModerationAction action, string[] reasons)
@@ -15,17 +15,21 @@ namespace ChatGuard.Core.Scoring
 
         public ModerationAction Action { get; }
 
-        /// <summary>Human-readable reasons, e.g. "hide: insult 0.91 ≥ 0.80".</summary>
+        /// <summary>Readable reasons, such as <c>hide: insult 0.91 ≥ 0.80</c>.</summary>
         public string[] Reasons { get; }
     }
 
     /// <summary>
-    /// Maps verdict probabilities, severity and the model Score to an action using project thresholds.
-    /// The model never picks the action; this is the only place the decision is made.
-    /// Evaluation order is fixed: Block, then Hide, then Flag, else Allow.
+    /// Turns verdict probabilities, severity and the model's Score (<see cref="ModelScore"/>) into an action with the
+    /// <see cref="Thresholds"/> you pass; the model never picks the action. Levels are checked Block, Hide, then Flag,
+    /// and the first with a rule that fires wins. If none fires, the action is Allow.
     /// </summary>
     public static class ActionMapper
     {
+        /// <summary>
+        /// Returns the action. Pass a null <paramref name="score"/> for local-filter results, which skips the
+        /// <see cref="Thresholds.FlagBelowScoreConfidence"/> rule.
+        /// </summary>
         public static ModerationAction Map(VerdictSet verdicts, double severity, ModelScore? score, Thresholds thresholds)
         {
             if (severity >= thresholds.SeverityBlock)
@@ -68,7 +72,7 @@ namespace ChatGuard.Core.Scoring
             return ModerationAction.Allow;
         }
 
-        /// <summary>Same decision as <see cref="Map"/>, with every rule that fired at the winning level listed.</summary>
+        /// <summary>Same decision as <see cref="Map"/>, listing every rule that fired at the winning level.</summary>
         public static ActionDecision Explain(VerdictSet verdicts, double severity, ModelScore? score, Thresholds thresholds)
         {
             var reasons = new List<string>();

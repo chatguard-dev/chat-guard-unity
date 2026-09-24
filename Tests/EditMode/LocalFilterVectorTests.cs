@@ -4,12 +4,14 @@ using System.IO;
 using ChatGuard.Core;
 using ChatGuard.Core.Filtering;
 using ChatGuard.Core.Text;
-using ChatGuard.Unity;
 using NUnit.Framework;
 
 namespace ChatGuard.Tests
 {
-    /// <summary>Runs the same tests/vectors/local-filter.json the .NET suite uses, against the copied Core sources.</summary>
+    /// <summary>
+    /// Runs tests/vectors/local-filter.json, copied to <c>Vectors/</c>, against this package's copy of Core. The .NET
+    /// Core tests run the same cases, so both copies of Core must agree.
+    /// </summary>
     public class LocalFilterVectorTests
     {
         private static Dictionary<string, object?> LoadVectors()

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace ChatGuard.Core.Filtering
 {
-    /// <summary>The categories attached to a built-in word-list term.</summary>
+    /// <summary>The categories of one word-list term.</summary>
     internal sealed class WordListEntry
     {
         public WordListEntry(VerdictCategory[] categories)
@@ -15,7 +15,7 @@ namespace ChatGuard.Core.Filtering
         public VerdictCategory[] Categories { get; }
     }
 
-    /// <summary>One language's built-in terms, indexed for matching.</summary>
+    /// <summary>One language's word list, parsed and indexed for matching.</summary>
     public sealed class LanguageWordList
     {
         internal LanguageWordList(string language, TermIndex<WordListEntry> index, int skipped)
@@ -25,29 +25,34 @@ namespace ChatGuard.Core.Filtering
             SkippedEntries = skipped;
         }
 
+        /// <summary>Lowercase language code, such as <c>en</c>.</summary>
         public string Language { get; }
 
         public int Count { get { return Index.Count; } }
 
-        /// <summary>Entries rejected at load time (malformed lines); should be 0 for the built-in lists.</summary>
+        /// <summary>
+        /// Lines not indexed: blank, comment and malformed lines, and terms the index rejects, such as a too-short
+        /// prefix. Always 0 for the built-in lists.
+        /// </summary>
         public int SkippedEntries { get; }
 
         internal TermIndex<WordListEntry> Index { get; }
     }
 
     /// <summary>
-    /// Built-in word lists for the local filter. Sources are the *.txt files next to this file
-    /// (one <c>categories|term</c> per line); <c>WordLists.Generated.cs</c> is produced from them by
-    /// <c>tools/WordListGen</c> so that the data travels with the C# sources into the Unity package.
-    /// Each language's list is parsed on its first use, with the same normalizer the filter uses, so a
-    /// client that only ever filters one or two languages never pays for the others.
+    /// The word lists of the local filter, one per language. <see cref="BuiltIn"/> holds the lists that ship with
+    /// Chat Guard.
     /// </summary>
+    /// <remarks>
+    /// The built-in lists are generated into <c>WordLists.Generated.cs</c> so they travel with the C# sources into the
+    /// Unity package. Each is parsed on first use, so languages a client never filters cost nothing. Safe to use from
+    /// any thread.
+    /// </remarks>
     public sealed class WordListCatalog
     {
         private static readonly Lazy<WordListCatalog> BuiltInLazy = new Lazy<WordListCatalog>(LoadBuiltIn);
 
-        // Built once and never mutated afterwards. Built-in slots parse their language on first access;
-        // FromEntries slots are parsed up front.
+        // Never mutated after construction, so concurrent reads are safe.
         private readonly Dictionary<string, Lazy<LanguageWordList>> _lists;
 
         private WordListCatalog(string version, Dictionary<string, Lazy<LanguageWordList>> lists)
@@ -59,11 +64,18 @@ namespace ChatGuard.Core.Filtering
         /// <summary>The lists compiled into this assembly.</summary>
         public static WordListCatalog BuiltIn { get { return BuiltInLazy.Value; } }
 
-        /// <summary>Content hash of the source lists, reported as the local model version.</summary>
+        /// <summary>
+        /// Identifies the list contents; for <see cref="BuiltIn"/>, the first 12 hex characters of a SHA-256 hash of
+        /// the source lists. Local results report it in their model name (see <see cref="LocalModeration.ModelName"/>).
+        /// </summary>
         public string Version { get; }
 
         public IEnumerable<string> Languages { get { return _lists.Keys; } }
 
+        /// <summary>
+        /// Returns the list for a language code such as <c>en</c>, ignoring case and surrounding spaces, or null when
+        /// there is none. Region codes are not stripped, so <c>pt-BR</c> returns null.
+        /// </summary>
         public LanguageWordList? Get(string? language)
         {
             if (string.IsNullOrEmpty(language))
@@ -74,13 +86,16 @@ namespace ChatGuard.Core.Filtering
             return _lists.TryGetValue(language!.Trim().ToLowerInvariant(), out Lazy<LanguageWordList> slot) ? slot.Value : null;
         }
 
-        /// <summary>Builds a catalog from raw entries; used by tests and by the generator's self-check.</summary>
+        /// <summary>
+        /// Builds a catalog from raw lines in the <see cref="TryParseLine"/> format, keyed by language code. Keys are
+        /// lowercased, and every list is parsed at once.
+        /// </summary>
         public static WordListCatalog FromEntries(string version, IDictionary<string, string[]> entriesByLanguage)
         {
             var lists = new Dictionary<string, Lazy<LanguageWordList>>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, string[]> pair in entriesByLanguage)
             {
-                // Parsed eagerly: SkippedEntries/Count are known right away and the caller's arrays are not kept.
+                // Eager, so SkippedEntries and Count are known at once and the caller's arrays are not kept.
                 string key = pair.Key.ToLowerInvariant();
                 lists[key] = new Lazy<LanguageWordList>(Parse(key, pair.Value));
             }
@@ -89,8 +104,9 @@ namespace ChatGuard.Core.Filtering
         }
 
         /// <summary>
-        /// Parses one <c>categories|term</c> line. Returns false for blank lines, comments and malformed input.
-        /// A leading <c>~</c> on the term marks a prefix match.
+        /// Parses one word-list line: comma-separated <see cref="VerdictCategory"/> names, <c>|</c>, then the term, as in
+        /// <c>insult|idiot</c>. A leading <c>~</c> makes the term a prefix. Returns false for blank, <c>#</c> comment
+        /// and malformed lines. Term limits, such as the minimum prefix length, are checked later, at indexing.
         /// </summary>
         public static bool TryParseLine(string? line, out VerdictCategory[] categories, out string term, out bool isPrefix)
         {
@@ -148,8 +164,7 @@ namespace ChatGuard.Core.Filtering
 
         private static WordListCatalog LoadBuiltIn()
         {
-            // Generated language codes are already lower case. The generated data is only materialized
-            // (and parsed) when a language is first used.
+            // Generated codes are already lowercase. Each language's array is built and parsed only on first use.
             var lists = new Dictionary<string, Lazy<LanguageWordList>>(StringComparer.Ordinal);
             foreach (string language in GeneratedWordLists.Languages)
             {

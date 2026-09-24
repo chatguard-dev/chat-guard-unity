@@ -5,11 +5,16 @@ using System.Text;
 
 namespace ChatGuard.Core.Text
 {
-    /// <summary>SHA-256 of the normalized message; the only message-derived value persisted by default.</summary>
+    /// <summary>SHA-256 helper behind <see cref="NormalizedMessage.Hash"/>.</summary>
     public static class MessageHasher
     {
         private const string HexDigits = "0123456789abcdef";
 
+        /// <summary>
+        /// Returns the SHA-256 of the UTF-8 bytes of <paramref name="text"/> as 64 lowercase hex characters. Does not
+        /// normalize: for a chat message, use <see cref="NormalizedMessage.Hash"/>.
+        /// </summary>
+        /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
         public static string Sha256Hex(string text)
         {
             if (text == null)

@@ -3,12 +3,16 @@ using System;
 
 namespace ChatGuard.Core
 {
-    /// <summary>The recommended action, ordered by severity.</summary>
+    /// <summary>What Chat Guard recommends doing with a message, in rising order of severity.</summary>
     public enum ModerationAction
     {
+        /// <summary>Nothing wrong: show the message to everyone.</summary>
         Allow = 0,
+        /// <summary>Borderline: show it, and mark it for your team to review.</summary>
         Flag = 1,
+        /// <summary>Abusive: show it only to its sender, so they do not learn it was hidden.</summary>
         Hide = 2,
+        /// <summary>Severe: show it to nobody, and tell the sender.</summary>
         Block = 3,
     }
 

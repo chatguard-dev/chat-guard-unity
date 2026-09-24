@@ -7,18 +7,27 @@ using ChatGuard.Core.Text;
 namespace ChatGuard.Core
 {
     /// <summary>
-    /// End-to-end local moderation without the model: normalize, run the dictionary filter and project
-    /// rules, compute severity and action. Used by the API on every degrade path and by the Unity client
-    /// when offline or when the server reports <c>degraded</c>.
+    /// Moderates a message without the model: runs the local filter (built-in word lists) and any project rules, then
+    /// computes severity and action. The server uses it for block-rule hits and degraded results, and the Unity client
+    /// for its local-filter fallback.
     /// </summary>
     public static class LocalModeration
     {
-        /// <summary>Model name reported for local outcomes, e.g. <c>local-filter/3f2a9c1d0b77</c>.</summary>
+        /// <summary>
+        /// The model name for local results: <c>local-filter/</c> plus the word-list version, such as
+        /// <c>local-filter/3f2a9c1d0b77</c>.
+        /// </summary>
         public static string ModelName(WordListCatalog catalog)
         {
             return "local-filter/" + catalog.Version;
         }
 
+        /// <summary>
+        /// Moderates <paramref name="message"/> with the local filter; null counts as empty. <paramref name="reason"/>
+        /// goes into <see cref="ModerationOutcome.DegradedReason"/>, so pass <see cref="DegradedReason.None"/> when
+        /// nothing failed. Null <paramref name="filter"/>, <paramref name="thresholds"/> or <paramref name="weights"/>
+        /// means the built-in default; null <paramref name="rules"/> means no project rules.
+        /// </summary>
         public static ModerationOutcome Evaluate(
             string? message,
             string? language,
@@ -32,6 +41,11 @@ namespace ChatGuard.Core
             return Evaluate(normalized, language, reason, filter, rules, thresholds, weights);
         }
 
+        /// <summary>
+        /// Same as the string overload, for a message already normalized with
+        /// <see cref="NormalizedMessage.Create(string)"/>.
+        /// </summary>
+        /// <exception cref="ArgumentNullException"><paramref name="message"/> is null.</exception>
         public static ModerationOutcome Evaluate(
             NormalizedMessage message,
             string? language,
@@ -54,7 +68,10 @@ namespace ChatGuard.Core
             return FromFilterResult(result, reason, effectiveThresholds, effectiveWeights);
         }
 
-        /// <summary>Turns a filter result into an outcome; severity and action are computed here, never by a model.</summary>
+        /// <summary>
+        /// Turns a local filter result into an outcome. A project block-rule hit gives Block at maximum severity;
+        /// otherwise <see cref="SeverityCalculator"/> and <see cref="ActionMapper"/> decide, with no model Score.
+        /// </summary>
         public static ModerationOutcome FromFilterResult(LocalFilterResult result, DegradedReason reason, Thresholds thresholds, SeverityWeights weights)
         {
             if (result == null)

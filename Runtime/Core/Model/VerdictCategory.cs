@@ -3,23 +3,32 @@ using System;
 
 namespace ChatGuard.Core
 {
-    /// <summary>The six verdict categories returned by <c>POST /v1/moderate</c>.</summary>
+    /// <summary>The six categories Chat Guard checks each message for, each scored with a probability.</summary>
     public enum VerdictCategory
     {
+        /// <summary>Name-calling or a demeaning taunt aimed at a person.</summary>
         Insult = 0,
+        /// <summary>A threat of real-world violence or harm, or a call for self-harm.</summary>
         Threat = 1,
+        /// <summary>
+        /// An attack or slur on a person or group because of race, religion, gender, sexual orientation, disability
+        /// or a similar trait.
+        /// </summary>
         Hate = 2,
+        /// <summary>Sexual content that does not suit the chat's age rating.</summary>
         Sexual = 3,
+        /// <summary>Advertising, invite links, scams, giveaways or flooding.</summary>
         Spam = 4,
+        /// <summary>Buying or selling accounts, items, currency or boosting for real money.</summary>
         Trading = 5,
     }
 
-    /// <summary>Helpers for <see cref="VerdictCategory"/>, including the wire names used in JSON.</summary>
+    /// <summary>Helpers for <see cref="VerdictCategory"/>.</summary>
     public static class VerdictCategories
     {
         public const int Count = 6;
 
-        /// <summary>All categories in wire order.</summary>
+        /// <summary>All six categories in enum order, which is also the API JSON order.</summary>
         public static readonly VerdictCategory[] All =
         {
             VerdictCategory.Insult,
@@ -30,7 +39,7 @@ namespace ChatGuard.Core
             VerdictCategory.Trading,
         };
 
-        /// <summary>The snake_case name used in API JSON and in word-list files.</summary>
+        /// <summary>The name used in API JSON and word-list files, such as <c>insult</c>.</summary>
         public static string ToWireName(VerdictCategory category)
         {
             switch (category)
@@ -45,7 +54,7 @@ namespace ChatGuard.Core
             }
         }
 
-        /// <summary>Parses a wire name (case-insensitive). Returns false for unknown names.</summary>
+        /// <summary>Parses a wire name, ignoring case and surrounding spaces; false for unknown names.</summary>
         public static bool TryParse(string? name, out VerdictCategory category)
         {
             switch ((name ?? string.Empty).Trim().ToLowerInvariant())

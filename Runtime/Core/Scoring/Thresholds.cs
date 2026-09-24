@@ -4,8 +4,7 @@ using System;
 namespace ChatGuard.Core.Scoring
 {
     /// <summary>
-    /// Per-category probability thresholds. A null level means that level is not used for the category.
-    /// Plain settable properties so the API can persist the object as JSON (projects.thresholds).
+    /// The Flag, Hide and Block thresholds of one category, as probabilities from 0 to 1. Null turns that level off.
     /// </summary>
     public sealed class CategoryThresholds
     {
@@ -20,13 +19,13 @@ namespace ChatGuard.Core.Scoring
             Block = block;
         }
 
-        /// <summary>p at or above this value recommends at least Flag.</summary>
+        /// <summary>A probability at or above this recommends at least Flag.</summary>
         public double? Flag { get; set; }
 
-        /// <summary>p at or above this value recommends at least Hide.</summary>
+        /// <summary>A probability at or above this recommends at least Hide.</summary>
         public double? Hide { get; set; }
 
-        /// <summary>p at or above this value recommends Block.</summary>
+        /// <summary>A probability at or above this recommends Block.</summary>
         public double? Block { get; set; }
 
         public CategoryThresholds Clone()
@@ -36,10 +35,14 @@ namespace ChatGuard.Core.Scoring
     }
 
     /// <summary>
-    /// Project-editable action thresholds. The defaults reproduce the spec's mapping exactly:
-    /// block if threat.p ≥ 0.85 or severity ≥ 2.5; hide if insult/hate/sexual ≥ 0.80;
-    /// flag if any category ≥ 0.55 or the Score confidence is below 0.5; otherwise allow.
+    /// The thresholds <see cref="ActionMapper"/> uses to turn verdicts and severity into an action. Each project edits
+    /// its own on the dashboard's Thresholds page.
     /// </summary>
+    /// <remarks>
+    /// Defaults: Block when threat ≥ 0.85 or severity ≥ 2.5. Hide when insult, hate or sexual ≥ 0.80. Flag when
+    /// any category ≥ 0.55, or when the model's <see cref="ModelScore.Confidence"/> is below 0.5. Otherwise Allow.
+    /// In the Unity package, <c>ChatGuardSettings.Thresholds</c> sets them for decisions made on the device.
+    /// </remarks>
     public sealed class Thresholds
     {
         public const double DefaultFlag = 0.55;

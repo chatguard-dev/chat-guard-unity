@@ -2392,7 +2392,7 @@
               "null",
               "number"
             ],
-            "description": "p at or above this value recommends at least Flag.",
+            "description": "A probability at or above this recommends at least Flag.",
             "format": "double"
           },
           "hide": {
@@ -2400,7 +2400,7 @@
               "null",
               "number"
             ],
-            "description": "p at or above this value recommends at least Hide.",
+            "description": "A probability at or above this recommends at least Hide.",
             "format": "double"
           },
           "block": {
@@ -2408,7 +2408,7 @@
               "null",
               "number"
             ],
-            "description": "p at or above this value recommends Block.",
+            "description": "A probability at or above this recommends Block.",
             "format": "double"
           }
         },
@@ -2427,6 +2427,29 @@
             ]
           }
         }
+      },
+      "ContextRuleLimits": {
+        "required": [
+          "max_rules",
+          "max_rule_chars",
+          "max_total_chars"
+        ],
+        "type": "object",
+        "properties": {
+          "max_rules": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_rule_chars": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max_total_chars": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "description": "Limits on the project's context rules: how many, the length of each, and `max_total_chars` for all of them\ntogether, which is what the model reads with each message. Saves past a limit are refused."
       },
       "CreateKeyRequest": {
         "required": [
@@ -3460,7 +3483,8 @@
           "thresholds",
           "severity_weights",
           "rules_version",
-          "created_at"
+          "created_at",
+          "context_rule_limits"
         ],
         "type": "object",
         "properties": {
@@ -3508,6 +3532,9 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "context_rule_limits": {
+            "$ref": "#/components/schemas/ContextRuleLimits"
           }
         }
       },

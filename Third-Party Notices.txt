@@ -1,0 +1,24 @@
+Third-Party Notices
+
+This package includes the third-party fonts below, each under its own license. They are used only by the Basic Chat
+sample and are the unmodified font files that Google Fonts distributes.
+
+Where they are: in the package, Samples~/BasicChat/Fonts; after you import the sample, Assets/Samples/Chat Guard/<version>/Basic Chat/Fonts.
+
+
+Inter (Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf)
+Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+License: SIL Open Font License, Version 1.1
+License text: Inter-OFL.txt, next to the fonts
+
+
+Inter Tight (InterTight-Medium.ttf)
+Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight)
+License: SIL Open Font License, Version 1.1
+License text: InterTight-OFL.txt, next to the fonts
+
+
+JetBrains Mono (JetBrainsMono-Regular.ttf, JetBrainsMono-Medium.ttf)
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+License: SIL Open Font License, Version 1.1
+License text: JetBrainsMono-OFL.txt, next to the fonts

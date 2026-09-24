@@ -1,10 +1,11 @@
 {
   "name": "com.chatguard.sdk",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "displayName": "Chat Guard",
   "description": "Real-time chat moderation for Unity games. Each message is checked in about 300 ms, before other players see it, and your game gets an action (allow, flag, hide or block) with calibrated scores. Tune thresholds and rules live from the dashboard. Setup is one line with your API key.",
   "unity": "2021.3",
-  "license": "MIT",
+  "unityRelease": "42f1",
+  "license": "SEE LICENSE IN LICENSE.md",
   "keywords": [
     "chat",
     "moderation",
@@ -12,14 +13,17 @@
     "multiplayer"
   ],
   "author": {
-    "name": "Kirill Tolmachev pr Beograd",
-    "url": "https://app.chatguard.dev"
+    "name": "Proper Assets",
+    "url": "https://chatguard.dev"
   },
-  "dependencies": {},
+  "dependencies": {
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.ugui": "1.0.0"
+  },
   "samples": [
     {
       "displayName": "Basic Chat",
-      "description": "Minimal chat UI with threshold sliders and a verdict log.",
+      "description": "A chat screen: type as any of five players or play the example chat, and see what other players get, each line's verdict and the scores behind it. Its sliders set the local-decision thresholds, which apply only when the package answers on the device.",
       "path": "Samples~/BasicChat"
     }
   ],

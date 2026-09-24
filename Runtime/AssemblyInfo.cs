@@ -1,5 +1,5 @@
 #nullable enable
 using System.Runtime.CompilerServices;
 
-// The EditMode tests check the internal request writer and response reader against the public string paths.
+// Lets the EditMode tests use internals, such as the UTF-8 request writer and the response reader.
 [assembly: InternalsVisibleTo("ChatGuard.Tests.EditMode")]

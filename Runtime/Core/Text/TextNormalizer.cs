@@ -7,17 +7,25 @@ using System.Text;
 namespace ChatGuard.Core.Text
 {
     /// <summary>
-    /// Deterministic text normalization shared by the API and the Unity client, so that the same
-    /// message hashes to the same value everywhere and the local filter behaves identically.
-    /// Pipeline: strip invisible characters → Unicode NFKC → lowercase → per-token script-aware
-    /// homoglyph and leet mapping → collapse runs of 3+ identical characters to 2 → collapse whitespace.
-    /// Only BCL APIs available in Unity 2021.3 (netstandard2.1) are used.
+    /// Turns chat text into one standard form so disguised words still match the word lists. The server and the Unity
+    /// client share this code, so both produce the same string for a message.
     /// </summary>
+    /// <remarks>Uses only BCL APIs available in Unity 2021.3 (netstandard2.1).</remarks>
     public static class TextNormalizer
     {
-        /// <summary>Maximum run length kept for repeated characters ("shiiiit" → "shiit").</summary>
+        /// <summary>Longest run of one character that <see cref="Normalize"/> keeps: "shiiiit" → "shiit".</summary>
         public const int MaxRun = 2;
 
+        /// <summary>
+        /// Returns the standard form of <paramref name="input"/>, which the word lists match and the server hashes.
+        /// Null or empty input returns an empty string.
+        /// </summary>
+        /// <remarks>
+        /// Steps: 1. Drop invisible characters and non-whitespace control characters. 2. Apply Unicode NFKC, which
+        /// makes full-width and styled letters plain. 3. Lowercase. 4. In each word, rewrite look-alike letters from
+        /// another script and leet ("sh1t" → "shit"). 5. Join words with single spaces, trimmed. 6. Cut runs of a
+        /// repeated character to <see cref="MaxRun"/>.
+        /// </remarks>
         public static string Normalize(string? input)
         {
             if (string.IsNullOrEmpty(input))
@@ -27,17 +35,18 @@ namespace ChatGuard.Core.Text
 
             string s = StripInvisible(input!);
             s = TryNormalize(s, NormalizationForm.FormKC);
-            s = s.Replace('İ', 'i'); // İ → i before lowering; runtimes disagree on its lowercase form
+            s = s.Replace('İ', 'i'); // before lowering: runtimes disagree on the lowercase form of İ
             s = IsLowercaseAscii(s) ? s : s.ToLowerInvariant(); // skip the no-op: Mono's ToLowerInvariant always copies
-            s = s.Replace("i̇", "i"); // leftover combining dot above from some runtimes
+            s = s.Replace("i̇", "i"); // i + combining dot above (U+0307), which some runtimes leave behind
             s = MapTokens(s);
             s = CollapseRuns(s, MaxRun);
             return s;
         }
 
         /// <summary>
-        /// Splits normalized text into matching tokens: whitespace-separated, with every character that
-        /// is not a letter or digit removed ("s.h.i.t" → "shit", "discord.gg/x" → "discordggx").
+        /// Splits <see cref="Normalize"/> output at whitespace into the tokens the word lists match. Removes every
+        /// character that is not a letter or digit ("s.h.i.t" → "shit", "discord.gg/x" → "discordggx") and skips tokens
+        /// left empty.
         /// </summary>
         public static string[] Tokenize(string normalized)
         {
@@ -65,9 +74,10 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
-        /// Accent/case-insensitive comparison form used for word-list lookups: NFD with combining marks
-        /// removed, plus ß→ss, ı→i, ł→l, ø→o, đ→d, æ→ae, œ→oe. Cyrillic й/ё fold to и/е as a side effect,
-        /// which is intended (ё/е are used interchangeably in chat).
+        /// Accent-insensitive form of a token or phrase, used to match word lists and project rules. Removes combining
+        /// marks after Unicode NFD ("señor" → "senor") and folds letters such as ß → ss, ł → l and æ → ae. Case is
+        /// kept, so pass <see cref="Normalize"/> output or its tokens. Cyrillic й and ё fold to и and е, on purpose:
+        /// chat uses ё and е interchangeably.
         /// </summary>
         public static string Fold(string token)
         {
@@ -76,14 +86,14 @@ namespace ChatGuard.Core.Text
                 return string.Empty;
             }
 
-            // Exact: ASCII is NFD-stable, has no combining marks and none of the special cases below is ASCII.
+            // ASCII is NFD-stable, has no combining marks and hits none of the cases below.
             if (IsAscii(token))
             {
                 return token;
             }
 
             string d = TryNormalize(token, NormalizationForm.FormD);
-            StringBuilder? sb = null; // created at the first dropped or replaced character; until then the output is d[0..i)
+            StringBuilder? sb = null; // created at the first change; until then the output is d[0..i)
             for (int i = 0; i < d.Length; i++)
             {
                 char c = d[i];
@@ -115,7 +125,11 @@ namespace ChatGuard.Core.Text
             return sb == null ? d : sb.ToString();
         }
 
-        /// <summary>Collapses every run of identical characters to a single character ("shiit" → "shit").</summary>
+        /// <summary>
+        /// Cuts every run of a repeated character to <paramref name="maxRun"/> ("shiiiit" → "shiit" with 2, "shit"
+        /// with 1). Returns <paramref name="text"/> unchanged when <paramref name="maxRun"/> is below 1, and an empty
+        /// string for null.
+        /// </summary>
         public static string CollapseRuns(string text, int maxRun)
         {
             if (string.IsNullOrEmpty(text) || maxRun < 1)
@@ -162,8 +176,8 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
-        /// Returns <paramref name="sb"/>, creating it first (seeded with <c>text[0..end)</c>) when it is still null.
-        /// Used by loops whose output equals their input until the first character they drop or replace.
+        /// Returns <paramref name="sb"/>, first creating it with <c>text[0..end)</c> when it is null. Lets a loop skip
+        /// copying until the first character it drops or replaces.
         /// </summary>
         private static StringBuilder StartBuilder(ref StringBuilder? sb, string text, int end)
         {
@@ -190,7 +204,7 @@ namespace ChatGuard.Core.Text
             return true;
         }
 
-        /// <summary>True when <paramref name="s"/> is ASCII without 'A'..'Z', so ToLowerInvariant would return it unchanged.</summary>
+        /// <summary>True when <paramref name="s"/> is ASCII without A..Z, so lowercasing would not change it.</summary>
         private static bool IsLowercaseAscii(string s)
         {
             for (int i = 0; i < s.Length; i++)
@@ -206,9 +220,9 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
-        /// Drops invisible characters and folds the Mathematical Alphanumeric Symbols block (𝐢𝐝𝐢𝐨𝐭, 𝒾𝒹𝒾𝑜𝓉, …)
-        /// to ASCII explicitly: NFKC does the same on .NET, but Unity's Mono runtime does not normalize
-        /// supplementary-plane characters, and the hash must be identical on both hosts.
+        /// Drops invisible characters, non-whitespace control characters and the supplementary variation selectors.
+        /// Folds styled Latin letters and digits from the Mathematical Alphanumeric Symbols block (𝐢𝐝𝐢𝐨𝐭) to ASCII
+        /// here: Unity's Mono skips NFKC for characters outside the BMP, and both hosts must produce the same text.
         /// </summary>
         private static string StripInvisible(string input)
         {
@@ -236,7 +250,7 @@ namespace ChatGuard.Core.Text
                     }
                     else if (codePoint < 0xE0100 || codePoint > 0xE01EF)
                     {
-                        // Keep emoji and other supplementary characters; drop variation selectors supplement.
+                        // Keep emoji and other supplementary characters; drop the supplementary variation selectors.
                         sb.Append(c).Append(input[i]);
                     }
 
@@ -260,8 +274,8 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
-        /// Conservative pre-scan for <see cref="StripInvisible"/>: false only when its loop would copy every character
-        /// unchanged (no surrogates at all, even lone ones, no invisible characters, no non-whitespace controls).
+        /// Pre-scan for <see cref="StripInvisible"/>: false only when the text has no surrogates, invisible characters
+        /// or non-whitespace controls, so stripping would change nothing.
         /// </summary>
         private static bool NeedsStripping(string s)
         {
@@ -279,8 +293,7 @@ namespace ChatGuard.Core.Text
 
         private static string TryNormalize(string s, NormalizationForm form)
         {
-            // ASCII is stable under NFC, NFD, NFKC and NFKD, so IsNormalized/Normalize would return it unchanged.
-            // Checking first skips Mono's slow per-character IsNormalized (Normalize uses FormKC, Fold uses FormD).
+            // ASCII is stable under every normalization form; checking it first skips Mono's slow IsNormalized.
             if (IsAscii(s))
             {
                 return s;
@@ -292,17 +305,14 @@ namespace ChatGuard.Core.Text
             }
             catch (ArgumentException)
             {
-                // Invalid surrogate pairs: keep the raw text rather than fail the request.
+                // Invalid surrogate pairs: keep the text as it is rather than throw.
                 return s;
             }
         }
 
         /// <summary>
-        /// Maps every whitespace-separated token of <paramref name="s"/> and joins them with single spaces. Nothing is
-        /// copied while the output is still a prefix of <paramref name="s"/> (first token at index 0, single U+0020
-        /// separators, <see cref="MapToken"/> returned null for every token), so such a message comes back as
-        /// <paramref name="s"/> itself, or, when <paramref name="s"/> ends in whitespace, as one Substring of
-        /// <paramref name="s"/> without that whitespace.
+        /// Runs <see cref="MapToken"/> on every whitespace-separated token and joins the results with single spaces.
+        /// Copies nothing while the output is still a prefix of <paramref name="s"/>.
         /// </summary>
         private static string MapTokens(string s)
         {
@@ -327,8 +337,8 @@ namespace ChatGuard.Core.Text
                 string? mapped = MapToken(s, start, i);
                 if (sb == null)
                 {
-                    // Appending the token keeps the output equal to s[0..i) when it is unmapped and starts the text,
-                    // or follows the previous token after exactly one ' '.
+                    // Still a prefix of s if this token is unmapped and starts s or follows the previous one after
+                    // exactly one ' '.
                     bool extendsPrefix = pendingSpace ? (start == consumed + 1 && s[consumed] == ' ') : start == 0;
                     if (mapped == null && extendsPrefix)
                     {
@@ -376,14 +386,14 @@ namespace ChatGuard.Core.Text
         }
 
         /// <summary>
-        /// Rewrites minority-script homoglyphs and leet characters toward the token's majority script.
-        /// Leet is only applied when the token has at least as many letters as digits/symbols, so
-        /// "1v1" and "2024" are untouched while "sh1t" and "b00bs" are mapped.
-        /// The token is <c>s[start..end)</c>. Returns null when no rewrite is needed (no letters, or neither mixed
-        /// scripts nor leet); otherwise returns the rebuilt token, which can still equal the input when none of its
-        /// characters has a mapping (for example the Greek-majority token "αβa").
-        /// Indices are absolute: <see cref="IsLeetCandidate"/> only compares them, so that equals token-relative indices.
+        /// Rewrites look-alike letters from a minority script, and leet characters, toward the majority script of the
+        /// token <c>s[start..end)</c>. Latin wins ties, and Greek-majority tokens are kept as they are. Leet applies
+        /// only when the token has at least as many letters as leet characters: "sh1t" is mapped, "1v1" is not.
         /// </summary>
+        /// <remarks>
+        /// Returns null when there is nothing to rewrite. A non-null result can still equal the input, as for "αβa".
+        /// Indices stay absolute, which is safe because <see cref="IsLeetCandidate"/> only compares them.
+        /// </remarks>
         private static string? MapToken(string s, int start, int end)
         {
             int latin = 0, cyrillic = 0, greek = 0, leetish = 0;
@@ -482,8 +492,8 @@ namespace ChatGuard.Core.Text
             return sb.ToString();
         }
         /// <summary>
-        /// Digits are leet candidates anywhere in a token ("a55"); symbols only when a letter follows them
-        /// ("sh!t", "@ss"), so trailing punctuation such as "idiot!!!" is never rewritten.
+        /// Whether <paramref name="c"/> counts as leet. Leet digits count anywhere in the token; leet symbols count
+        /// only when a letter comes later in it ("sh!t", "@ss"), so "idiot!!!" keeps its punctuation.
         /// </summary>
         private static bool IsLeetCandidate(char c, int index, int lastLetterIndex)
         {

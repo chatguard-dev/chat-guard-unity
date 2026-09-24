@@ -3,27 +3,35 @@ using System;
 using System.Globalization;
 using System.Text;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     /// <summary>
-    /// Output of <see cref="ChatGuardClient"/>'s request writer, which holds the one definition of the /v1/moderate body
-    /// (keys, order, omission rules). <see cref="StringRequestJsonSink"/> produces the string of
-    /// <see cref="ChatGuardClient.BuildRequestJson"/>; <see cref="Utf8RequestJsonSink"/> produces exactly the bytes
-    /// <c>Encoding.UTF8.GetBytes</c> gives for that string, without creating the string.
+    /// Destination for the POST /v1/moderate body, which <see cref="ChatGuardClient"/> defines once (keys, order,
+    /// omitted fields). <see cref="StringRequestJsonSink"/> builds the string of
+    /// <see cref="ChatGuardClient.BuildRequestJson"/>; <see cref="Utf8RequestJsonSink"/> writes its UTF-8 bytes
+    /// without creating the string.
     /// </summary>
     internal interface IRequestJsonSink
     {
-        /// <summary>Appends <paramref name="ascii"/> as is; only called with ASCII keys, brackets and separators.</summary>
+        /// <summary>
+        /// Appends <paramref name="ascii"/> unescaped. Pass only ASCII keys, brackets and separators: the UTF-8 sink
+        /// writes each char as one byte.
+        /// </summary>
         void WriteLiteral(string ascii);
 
         /// <summary>Appends <paramref name="value"/> as a quoted JSON string escaped like <see cref="MiniJson.WriteString"/>.</summary>
         void WriteString(string value);
 
-        /// <summary>Appends <paramref name="value"/> (never negative) as invariant decimal digits.</summary>
+        /// <summary>
+        /// Appends <paramref name="value"/> as decimal digits. Never pass a negative value: the UTF-8 sink writes one
+        /// wrong byte for it.
+        /// </summary>
         void WriteNonNegativeInt(int value);
     }
 
-    /// <summary>Appends the request JSON to a <see cref="StringBuilder"/>; the output of <see cref="ChatGuardClient.BuildRequestJson"/>.</summary>
+    /// <summary>
+    /// Writes the request JSON into a <see cref="StringBuilder"/> for <see cref="ChatGuardClient.BuildRequestJson"/>.
+    /// </summary>
     internal readonly struct StringRequestJsonSink : IRequestJsonSink
     {
         public StringRequestJsonSink(StringBuilder builder)
@@ -50,16 +58,17 @@ namespace ChatGuard.Unity
     }
 
     /// <summary>
-    /// Writes the request JSON as UTF-8 into a byte buffer reused per thread, so a request body costs no string and no
-    /// <c>byte[]</c>. The bytes equal <c>Encoding.UTF8.GetBytes</c> of <see cref="StringRequestJsonSink"/>'s output for the
-    /// same calls: <see cref="MiniJson.WriteString"/>'s escapes, ASCII as single bytes, other characters UTF-8 encoded,
-    /// a surrogate pair as one 4-byte sequence, and every lone surrogate as U+FFFD (EF BF BD), which is what
-    /// <c>Encoding.UTF8</c>'s replacement fallback writes; the character after a lone high surrogate is encoded normally.
-    /// Get one from <see cref="Rent"/>, read <see cref="Buffer"/> up to <see cref="Length"/>, then call
-    /// <see cref="Release"/>. Nothing between those calls may start another request on the same thread (in
+    /// Writes the request JSON as UTF-8 into a per-thread reusable buffer, so a body allocates no string and no new
+    /// <c>byte[]</c>. Get one from <see cref="Rent"/>, read <see cref="Buffer"/> up to <see cref="Length"/>, then call
+    /// <see cref="Release"/>. Rent no other sink on that thread in between, or both write into one buffer.
     /// <see cref="ChatGuardClient.Moderate(ModerationRequest, Action{ModerationResult}, System.Threading.CancellationToken)"/>
-    /// no user code runs in between).
+    /// runs no user code in between.
     /// </summary>
+    /// <remarks>
+    /// The bytes equal <c>Encoding.UTF8.GetBytes</c> of <see cref="StringRequestJsonSink"/>'s output for the same
+    /// calls. Like that encoder, it writes a surrogate pair as one 4-byte sequence and each lone surrogate as U+FFFD
+    /// (EF BF BD), then encodes the next character normally.
+    /// </remarks>
     internal struct Utf8RequestJsonSink : IRequestJsonSink
     {
         private const int InitialCapacity = 1024;
@@ -67,7 +76,10 @@ namespace ChatGuard.Unity
         /// <summary>A buffer that grew past this size is dropped after use, so one huge message is not kept alive.</summary>
         private const int RetainLimit = 64 * 1024;
 
-        /// <summary>Largest body this sink writes; the largest byte array the runtimes allow is slightly below int.MaxValue.</summary>
+        /// <summary>
+        /// Largest body in bytes, .NET's <c>Array.MaxLength</c>. Mono, IL2CPP and CoreCLR all accept a byte array this
+        /// long.
+        /// </summary>
         private const int MaxLength = 0x7FFFFFC7;
 
         // Per thread, so a Moderate call made off the main thread cannot write into a buffer another thread is using.
@@ -88,13 +100,15 @@ namespace ChatGuard.Unity
 
         public int Length => _length;
 
-        /// <summary>Starts an empty body in this thread's reusable buffer (created on first use).</summary>
+        /// <summary>Starts an empty body in this thread's reusable buffer, created at 1 KB on first use.</summary>
         public static Utf8RequestJsonSink Rent()
         {
             return new Utf8RequestJsonSink(t_buffer ?? new byte[InitialCapacity]);
         }
 
-        /// <summary>Keeps the (possibly grown) buffer for this thread's next request, unless it grew past 64 KB.</summary>
+        /// <summary>
+        /// Keeps the buffer for this thread's next request unless it grew past 64 KB. Read <see cref="Buffer"/> first.
+        /// </summary>
         public void Release()
         {
             if (_buffer.Length <= RetainLimit)
@@ -246,7 +260,10 @@ namespace ChatGuard.Unity
             return n;
         }
 
-        /// <summary>Grows the buffer (at least doubling) so that <paramref name="count"/> more bytes fit.</summary>
+        /// <summary>
+        /// Makes room for <paramref name="count"/> more bytes, at least doubling the buffer up to
+        /// <see cref="MaxLength"/>. Throws <see cref="OutOfMemoryException"/> if the body would pass that.
+        /// </summary>
         private void Ensure(long count)
         {
             long needed = _length + count;

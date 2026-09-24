@@ -267,15 +267,15 @@ JSON, and a JWT is required except on the rows marked public:
 | `GET/POST /api/orgs`, `GET/PATCH /api/orgs/{id}`, `GET /api/orgs/{id}/usage` | organizations; `POST` answers `409` (`code: free_org_limit`) while you already own a Free organization, and `429` after 3 new organizations in 24 hours |
 | `GET/POST /api/orgs/{id}/members`, `PATCH/DELETE /api/orgs/{id}/members/{mid}` | members and invitations |
 | `GET/POST /api/orgs/{id}/projects` | projects |
-| `GET/PATCH/DELETE /api/projects/{id}` | project settings, thresholds, evidence toggle |
+| `GET/PATCH/DELETE /api/projects/{id}` | project settings, thresholds, evidence toggle; `context_rule_limits` holds the context rule limits (next row) |
 | `GET/POST /api/projects/{id}/keys`, `DELETE …/keys/{kid}` | API keys |
-| `GET/POST /api/projects/{id}/rules`, `PATCH/DELETE …/rules/{rid}` | allow/block/context rules |
+| `GET/POST /api/projects/{id}/rules`, `PATCH/DELETE …/rules/{rid}` | allow/block/context rules. Context rules: at most 20 per project (`409` past it), 300 characters each, and 1,200 characters all together, which is what the model reads with each message; a create or edit that takes them past that answers `400`. A project already past it (rules saved before the limit) has its context rules read oldest first up to 1,200 characters, and edits that shorten them are still accepted |
 | `GET /api/projects/{id}/usage`, `…/verdicts`, `…/evidence`, `…/feedback` | logs and usage |
 | `GET /api/projects/{id}/evidence/export?after=…` | evidence export in parts of up to 100,000 rows, oldest first; `X-ChatGuard-Next-Cursor` carries the `after` value of the next part (see [Evidence](#evidence)) |
 | `DELETE /api/projects/{id}/evidence` | deletes all of the project's stored evidence, `200 { "deleted": <count> }`; owners and admins, every plan |
 | `DELETE /api/projects/{id}/evidence/authors?author_opaque_id=…` | erasure from the dashboard (owners and admins), same scope as [`DELETE /v1/evidence`](#delete-v1evidenceprojectidauthor_opaque_id); the path form `…/evidence/authors/{author}` still works for ids without `/` |
 | `GET /api/projects/{id}/authors/export?author_opaque_id=…` | everything the project stores for one player as JSON, for access requests: `verdicts`, `feedback` on them (with notes), `evidence`, and `thread_lines` (their lines in other players' stored thread context); owners and admins, every plan |
-| `POST /api/projects/{id}/test` | dashboard test panel: runs the pipeline with optional draft thresholds, weights and rules; not metered or logged; returns raw and adjusted verdicts plus the reasons for the action |
+| `POST /api/projects/{id}/test` | dashboard test panel: runs the pipeline with optional draft thresholds, weights and rules (draft context rules within the same limits as saving); not metered or logged; returns raw and adjusted verdicts plus the reasons for the action |
 | `GET /api/orgs/{id}/billing`, `POST …/billing/checkout`, `…/change`, `…/cancel`, `…/portal` | Polar billing |
 | `POST /webhooks/polar` | Polar webhooks, signed by Polar (Standard Webhooks) instead of a JWT |
 | `GET /api/plans` | tier configuration (public) |

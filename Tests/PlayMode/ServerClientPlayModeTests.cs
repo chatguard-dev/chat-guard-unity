@@ -8,7 +8,6 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -16,12 +15,13 @@ using UnityEngine.TestTools;
 namespace ChatGuard.Tests
 {
     /// <summary>
-    /// Runs real <see cref="ChatGuardClient.Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/>
-    /// calls against a local HTTP server with canned bodies and checks every result field (latency aside) against the
-    /// string path: TryParseResponse of the body text decoded as DownloadHandler.text decodes it, or the local fallback
-    /// with the same reason and error. It also checks the uploaded bytes against
-    /// Encoding.UTF8.GetBytes(BuildRequestJson(request)) and that completion runs on the main thread. HttpListener is
-    /// not available on WebGL.
+    /// Sends real <see cref="ChatGuardClient.Moderate(ModerationRequest, Action{ModerationResult})"/> calls to a local
+    /// HTTP server with canned responses. The server's usual 200 bodies go through the byte reader
+    /// (<c>ModerationResponseReader</c>), yet every result must match the string path's field for field, latency aside.
+    /// The string path is <see cref="ChatGuardClient.TryParseResponse"/> on the body as <c>DownloadHandler.text</c>
+    /// decodes it, or the local fallback with the same reason and error. The tests also check the upload against
+    /// <see cref="ChatGuardClient.BuildRequestJson"/>, the <see cref="ChatGuardClient.GameHeaderName"/> header, and
+    /// that completion runs on the main thread. Excluded on WebGL, which has no <see cref="HttpListener"/>.
     /// </summary>
     [UnityPlatform(exclude = new[] { RuntimePlatform.WebGLPlayer })]
     public class ServerClientPlayModeTests
@@ -31,7 +31,10 @@ namespace ChatGuard.Tests
         private const string Suspended = "{\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.4\",\"title\":\"Organization suspended\",\"status\":403,\"detail\":\"This organization is suspended, so its API keys are refused. Contact support@chatguard.dev.\",\"code\":\"org_suspended\",\"traceId\":\"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01\"}";
         private static readonly string TestKey = "cg_test_" + new string('x', 32);
 
-        /// <summary>Canned answers by route name (the first path segment): status, Content-Type (null: none) and body.</summary>
+        /// <summary>
+        /// Canned answers by route, the first URL path segment: status, Content-Type (null sends none) and body. Some
+        /// 200 bodies are left to the string path: escapes, non-ASCII, other charsets and bad JSON.
+        /// </summary>
         private static readonly Dictionary<string, (int Status, string? ContentType, byte[] Body)> Routes = new Dictionary<string, (int, string?, byte[])>
         {
             ["normal"] = (200, Json, Utf8(Sample)),
@@ -85,7 +88,10 @@ namespace ChatGuard.Tests
             _listener = null;
         }
 
-        /// <summary>Runs on a thread-pool thread: answers one request from <see cref="Routes"/> and keeps its body.</summary>
+        /// <summary>
+        /// Runs on a thread-pool thread: answers one request from <see cref="Routes"/> and records its body and game
+        /// header.
+        /// </summary>
         private void Serve(IAsyncResult asyncResult)
         {
             var listener = (HttpListener)asyncResult.AsyncState;
@@ -144,8 +150,8 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// The string path's result for a route: the body decoded like DownloadHandler.text (the Content-Type charset,
-        /// else UTF-8) and parsed by TryParseResponse, or the local fallback for HTTP errors and unparseable bodies.
+        /// The string path's result for a route. The body is decoded as <c>DownloadHandler.text</c> decodes it: with
+        /// the Content-Type charset, else UTF-8.
         /// </summary>
         private static ModerationResult Expected(string route, ModerationRequest request)
         {
@@ -160,7 +166,8 @@ namespace ChatGuard.Tests
             string text = body.Length == 0 ? string.Empty : encoding.GetString(body);
             if (status != 200)
             {
-                // A problem description is given as plain text and whole; any other body is quoted up to 200 characters.
+                // ChatGuardClient.DescribeHttpError keeps this problem description whole as plain text and cuts any
+                // other body to 200 characters.
                 string error = text == Suspended
                     ? "HTTP 403: Organization suspended. This organization is suspended, so its API keys are refused. Contact support@chatguard.dev. (code: org_suspended)"
                     : "HTTP " + status + ": " + (text.Length > 200 ? text.Substring(0, 200) : text);
@@ -232,7 +239,7 @@ namespace ChatGuard.Tests
                 ModerationRequest request = Request(route);
                 int completedOn = -1;
                 ModerationOperation op = client.Moderate(request, _ => completedOn = Thread.CurrentThread.ManagedThreadId);
-                // No IsDone check here: on a single-core device a local round trip can finish before Moderate returns.
+                // No IsDone check: a local round trip can finish before Moderate returns (seen on a one-core device).
                 yield return WaitFor(op);
 
                 ModerationResult actual = op.Result!;
@@ -252,16 +259,16 @@ namespace ChatGuard.Tests
                 }
 
                 Assert.That(received, Is.EqualTo(Encoding.UTF8.GetBytes(client.BuildRequestJson(request))), route + ": uploaded body");
-                // The game's bundle id goes with every request (decision 2026-09-23); a bundle id the API would not
-                // accept is left out instead.
+                // Every request carries the game's bundle id, or no header when the id has a form the server does not
+                // read (see ChatGuardClient.GameIdentity).
                 string expectedGame = System.Text.RegularExpressions.Regex.IsMatch(Application.identifier, "^[A-Za-z0-9._-]{1,200}$") ? Application.identifier : string.Empty;
                 Assert.That(game ?? string.Empty, Is.EqualTo(expectedGame), route + ": " + ChatGuardClient.GameHeaderName);
             }
         }
 
         /// <summary>
-        /// A 200 body cut short, or nested far too deep for any real response, is reported as an unparseable response
-        /// with the local fallback, not with a parser exception's message (and the deep one does not overflow the stack).
+        /// A 200 body cut short, or nested far deeper than any real response, gets the local fallback with the error
+        /// <c>unparseable response</c>, not a parser exception's message. The deep one must not overflow the stack.
         /// </summary>
         [UnityTest]
         public IEnumerator MalformedBodies_AreReportedAsUnparseable()
@@ -284,9 +291,10 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// Guards the allocation saving, which no result field shows: the byte reader reuses the last model string, the
-        /// string path (MiniJson) creates a new one per response. So two plain responses share one Model instance, and two
-        /// responses left to the string path (here because of a non-UTF-8 charset) do not.
+        /// No result field shows which path ran, so this test proves the server's usual bodies take the byte reader.
+        /// The byte reader reuses the last model string, while the string path creates a new one per response. So two
+        /// <c>normal</c> responses share one Model instance, and two <c>latin1</c> responses, which go to the string
+        /// path, do not.
         /// </summary>
         [UnityTest]
         public IEnumerator PlainServerBody_IsReadFromTheResponseBytes()
@@ -333,8 +341,9 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// The Hook's Moderate(message) sends PlayerId as author.id, and without one the per-installation id it keeps in
-        /// PlayerPrefs (this is not a Dedicated Server build). The PlayerPrefs value is put back afterwards.
+        /// The Hook's <see cref="ChatGuardUnityHook.Moderate(string)"/> sends <see cref="ChatGuardUnityHook.PlayerId"/>
+        /// as <c>author.id</c>, and without one the per-installation id from PlayerPrefs. Assumes this is not a
+        /// Dedicated Server build, which sends no install id. The stored id is restored afterwards.
         /// </summary>
         [UnityTest]
         public IEnumerator Hook_SendsThePlayerId_OrTheInstallId()
@@ -344,6 +353,7 @@ namespace ChatGuard.Tests
             config.apiKey = TestKey;
             config.baseUrl = _baseUrl + "/hook";
             config.timeoutSeconds = 5f;
+            // Built inactive so Awake sees the fields below; configureStaticApi = false leaves ChatGuardSdk untouched.
             var host = new GameObject("Chat Guard Hook");
             host.SetActive(false);
             ChatGuardUnityHook hook = host.AddComponent<ChatGuardUnityHook>();
@@ -398,7 +408,7 @@ namespace ChatGuard.Tests
             Assert.That(results.Count, Is.EqualTo(count), "the Hook did not report a result within 10 s");
         }
 
-        /// <summary>author.id of the last body the route received.</summary>
+        /// <summary>The <c>author.id</c> in the last body the route received.</summary>
         private string? ReceivedAuthorId(string route)
         {
             byte[] body;
@@ -423,15 +433,14 @@ namespace ChatGuard.Tests
                 ops[i] = Client(routes[i]).Moderate(requests[i]);
             }
 
-            ModerationRequest cancelledRequest = Request("normal");
-            ModerationOperation cancelled = Client("normal").Moderate(cancelledRequest);
-            // As in EveryRoute: a local round trip can finish before Moderate returns (seen on a 1-core device), and
-            // then there is nothing left to cancel. Completion only happens on the main thread, so an operation still in
-            // flight here is still in flight at Cancel().
-            bool cancelledInFlight = !cancelled.IsDone;
-            int cancelledCallbacks = 0;
-            cancelled.Completed += _ => cancelledCallbacks++;
-            cancelled.Cancel();
+            ModerationRequest canceledRequest = Request("normal");
+            ModerationOperation canceled = Client("normal").Moderate(canceledRequest);
+            // A local round trip can finish before Moderate returns, leaving nothing to cancel. Completion runs only on
+            // the main thread, so an operation in flight here is still in flight at Cancel().
+            bool canceledInFlight = !canceled.IsDone;
+            int canceledCallbacks = 0;
+            canceled.Completed += _ => canceledCallbacks++;
+            canceled.Cancel();
 
             for (int i = 0; i < routes.Length; i++)
             {
@@ -449,17 +458,17 @@ namespace ChatGuard.Tests
                 yield return null;
             }
 
-            if (cancelledInFlight)
+            if (canceledInFlight)
             {
-                Assert.That(cancelled.IsCancelled, Is.True);
-                Assert.That(cancelled.Result, Is.Null);
-                Assert.That(cancelledCallbacks, Is.EqualTo(0));
+                Assert.That(canceled.IsCanceled, Is.True);
+                Assert.That(canceled.Result, Is.Null);
+                Assert.That(canceledCallbacks, Is.EqualTo(0));
             }
             else
             {
-                Assert.That(cancelled.IsCancelled, Is.False, "Cancel after completion changes nothing");
-                AssertSameResult(Expected("normal", cancelledRequest), cancelled.Result!, "normal (finished inside Moderate)");
-                Assert.That(cancelledCallbacks, Is.EqualTo(1), "subscribing after completion invokes the handler once");
+                Assert.That(canceled.IsCanceled, Is.False, "Cancel after completion changes nothing");
+                AssertSameResult(Expected("normal", canceledRequest), canceled.Result!, "normal (finished inside Moderate)");
+                Assert.That(canceledCallbacks, Is.EqualTo(1), "subscribing after completion invokes the handler once");
             }
         }
     }

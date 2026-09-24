@@ -4,27 +4,30 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     /// <summary>
-    /// Tiny JSON reader/writer (objects → Dictionary&lt;string, object?&gt;, arrays → List&lt;object?&gt;, numbers → double,
-    /// plus string/bool/null). JsonUtility cannot express optional fields or nulls, which the Chat Guard API uses,
-    /// and the package must not depend on third-party libraries.
+    /// Small JSON reader and writer without third-party dependencies, for the optional fields and nulls JsonUtility
+    /// cannot express. Objects map to <c>Dictionary&lt;string, object?&gt;</c>, arrays to <c>List&lt;object?&gt;</c>
+    /// and numbers to <see cref="double"/>. The <c>Get*</c> helpers accept a null object and return null or the
+    /// fallback for a missing key or another type, so lookups chain.
     /// </summary>
     public static class MiniJson
     {
         /// <summary>
-        /// Deepest nesting of objects and arrays <see cref="Parse"/> reads; the outermost container is level 1. Far
-        /// above any Chat Guard response (the server's is 3 levels deep) and low enough to keep the recursive reader's
-        /// stack use small, so broken or hostile input gets a <see cref="FormatException"/> instead of overflowing the
-        /// stack (a StackOverflowException cannot be caught and would end the game).
+        /// Deepest nesting of objects and arrays <see cref="Parse"/> accepts; the outermost container is level 1.
+        /// Chat Guard responses nest at most 3 levels. The cap turns hostile input into a
+        /// <see cref="FormatException"/> instead of an uncatchable stack overflow that would end the game.
         /// </summary>
         internal const int MaxDepth = 128;
 
         /// <summary>
-        /// Reads one JSON value. Throws <see cref="FormatException"/> for text it cannot read: malformed or truncated
-        /// input, trailing characters after the value, and nesting deeper than 128 levels of objects and arrays.
+        /// Parses one JSON value into the types listed on <see cref="MiniJson"/>. Lenient: it also accepts some invalid
+        /// JSON, such as <c>+1</c>, <c>.5</c> or raw control characters in strings.
         /// </summary>
+        /// <exception cref="FormatException">
+        /// The text is unreadable or truncated, has non-whitespace after the value, or nests deeper than 128 levels.
+        /// </exception>
         public static object? Parse(string json)
         {
             var reader = new Reader(json);
@@ -38,6 +41,13 @@ namespace ChatGuard.Unity
             return value;
         }
 
+        /// <summary>
+        /// Writes <paramref name="value"/> as compact JSON. It handles the types <see cref="Parse"/> returns plus
+        /// <see cref="int"/>, <see cref="long"/> and <see cref="float"/>. Other enumerables become arrays, even a
+        /// <c>Dictionary&lt;string, int&gt;</c>. Anything else, such as a <see cref="decimal"/>, becomes a JSON string
+        /// of its <c>ToString()</c>. NaN and infinities are written bare, as invalid JSON that <see cref="Parse"/>
+        /// rejects.
+        /// </summary>
         public static string Write(object? value)
         {
             var sb = new StringBuilder();
@@ -140,7 +150,11 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>Appends <paramref name="s"/> as a quoted JSON string; also used by <see cref="ChatGuardClient.BuildRequestJson"/>.</summary>
+        /// <summary>
+        /// Appends <paramref name="s"/> as a quoted JSON string, escaping only <c>"</c>, <c>\</c> and characters below
+        /// U+0020. <see cref="ChatGuardClient.BuildRequestJson"/> uses it, and
+        /// <see cref="Utf8RequestJsonSink.WriteString"/> must match its escapes.
+        /// </summary>
         internal static void WriteString(StringBuilder sb, string s)
         {
             sb.Append('"');
@@ -305,9 +319,8 @@ namespace ChatGuard.Unity
 
                 _i++;
 
-                // Fast path: scan to the first quote or backslash. A string without escapes (almost every key and value
-                // in a response) is then one Substring, exactly the characters the loop below would have appended.
-                // Otherwise the loop continues from the first backslash (or the end) with the plain prefix copied.
+                // Fast path: a string without escapes, the usual case, is one Substring. Otherwise the loop below takes
+                // over with the plain prefix copied.
                 int start = _i;
                 while (_i < _s.Length && _s[_i] != '"' && _s[_i] != '\\')
                 {
@@ -377,8 +390,8 @@ namespace ChatGuard.Unity
                     _i++;
                 }
 
-                // The span overload is what the string overload calls after its null check (on Mono and CoreCLR alike), so
-                // parsing the slice in place gives the same result without allocating the Substring.
+                // On Mono and CoreCLR, double.TryParse(string) is this span overload plus a null check, so parsing the
+                // slice in place gives the same result without a Substring.
                 if (start == _i || !double.TryParse(_s.AsSpan(start, _i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
                 {
                     throw new FormatException("Invalid number at " + start);

@@ -6,7 +6,7 @@ using ChatGuard.Core.Text;
 
 namespace ChatGuard.Core.Filtering
 {
-    /// <summary>A term that matched, with the payload attached to it when it was indexed.</summary>
+    /// <summary>An indexed term and its payload, as reported by <see cref="TermIndex{T}.Match"/>.</summary>
     internal sealed class TermHit<T>
     {
         private string? _key;
@@ -17,17 +17,15 @@ namespace ChatGuard.Core.Filtering
             Payload = payload;
         }
 
-        /// <summary>The term as written in the source list (not normalized).</summary>
+        /// <summary>The term as passed to <see cref="TermIndex{T}.TryAdd"/>, before normalization.</summary>
         public string Term { get; }
 
         public T Payload { get; }
 
         /// <summary>
-        /// The normalized, folded term that category-less allow rules compare against. Computed on first
-        /// use and cached. Instances live in the shared built-in catalog, so the cache is read with
-        /// Volatile.Read and published with Interlocked.CompareExchange: a plain store does not guarantee
-        /// that another thread sees a fully built string on ARM64 (IL2CPP or Mono). A race may compute it
-        /// twice; every caller gets the first published value.
+        /// The normalized, folded term that category-less allow rules compare against, computed on first use. Hits are
+        /// shared between threads, so Volatile.Read and Interlocked.CompareExchange guard the cache: on ARM64 (IL2CPP
+        /// or Mono) a plain store could expose a partly built string. A race at worst computes it twice.
         /// </summary>
         public string Key
         {
@@ -46,9 +44,9 @@ namespace ChatGuard.Core.Filtering
     }
 
     /// <summary>
-    /// Word/phrase/prefix index over folded tokens. Terms are normalized with
-    /// <see cref="TextNormalizer"/> and folded with <see cref="TextNormalizer.Fold"/> at insert time;
-    /// message tokens are matched through <see cref="TokenForms.Candidates"/> (folded and run-collapsed).
+    /// Index of whole words, single-word prefixes and phrases. Terms are normalized, tokenized and folded (accents
+    /// removed) when added, then matched against the message token forms from <see cref="TokenForms.Candidates"/>.
+    /// Build it on one thread; after that, <see cref="Match"/> is safe from any thread.
     /// </summary>
     internal sealed class TermIndex<T>
     {
@@ -61,7 +59,11 @@ namespace ChatGuard.Core.Filtering
 
         public int Count { get; private set; }
 
-        /// <summary>Adds a term. Returns false with an error when the term is unusable.</summary>
+        /// <summary>
+        /// Adds a word, a phrase of up to <see cref="MaxPhraseTokens"/> words, or, with <paramref name="isPrefix"/>, a
+        /// single-word prefix of at least <see cref="MinPrefixLength"/> characters. Returns false with the reason in
+        /// <paramref name="error"/> if the term breaks a limit or normalizes to nothing.
+        /// </summary>
         public bool TryAdd(string rawTerm, bool isPrefix, T payload, out string? error)
         {
             error = null;
@@ -135,7 +137,10 @@ namespace ChatGuard.Core.Filtering
             return true;
         }
 
-        /// <summary>Appends every hit found in the candidate token forms to <paramref name="output"/>.</summary>
+        /// <summary>
+        /// Appends each term found in <paramref name="candidates"/> to <paramref name="output"/>, in message order.
+        /// Duplicates are kept: one entry per match, and a prefix can match both forms of a token.
+        /// </summary>
         public void Match(string[][] candidates, List<TermHit<T>> output)
         {
             for (int i = 0; i < candidates.Length; i++)
@@ -222,7 +227,10 @@ namespace ChatGuard.Core.Filtering
     /// <summary>Builds the comparison forms of each message token.</summary>
     internal static class TokenForms
     {
-        /// <summary>For each token: its folded form and, when different, the folded form with runs collapsed.</summary>
+        /// <summary>
+        /// For each token: its folded form and, when different, that form with every run of a repeated character
+        /// collapsed to one ("idiiot" → "idiot").
+        /// </summary>
         public static string[][] Candidates(string[] tokens)
         {
             var result = new string[tokens.Length][];

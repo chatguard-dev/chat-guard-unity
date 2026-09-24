@@ -11,9 +11,19 @@ For each message your game gets back an `action` (allow, flag, hide or block), s
 message targets.
 
 - **Setup is one line:** `ChatGuardSdk.Configure("your key")`.
-- **Unity 2021.3 LTS and newer**, on every platform, WebGL included.
+- **Unity 2021.3.42 LTS and newer**, on every platform, WebGL included.
 - **Callback, coroutine or `await`**, or a no-code component. No `Task`s and no threads.
-- **No dependencies:** the package uses only `UnityWebRequest`.
+- **No third-party dependencies:** the package uses only `UnityWebRequest`, and the Basic Chat sample
+  uses Unity UI.
+
+> **You need a Chat Guard account.** The package sends each message to the Chat Guard service, so it
+> needs an API key from [app.chatguard.dev](https://app.chatguard.dev). The Free plan checks 10,000
+> messages every 30 days; past that, a simpler word filter answers until your 30-day count drops
+> below 10,000 again. Paid plans, from $29 a month, include more messages each billing month and bill
+> extra messages at $0.25 per 1,000. Requests are rate limited
+> ([limits](Documentation~/api-reference.md#rate-limits)). See
+> [plans and prices](https://chatguard.dev/#pricing), the [terms](https://chatguard.dev/terms) and
+> the [privacy notes](https://chatguard.dev/privacy).
 
 ## Contents
 
@@ -29,8 +39,11 @@ message targets.
 - [If Chat Guard can't be reached](#if-chat-guard-cant-be-reached)
 - [WebGL builds](#webgl-builds)
 - [Thresholds and rules](#thresholds-and-rules)
+- [Privacy](#privacy)
 - [Troubleshooting](#troubleshooting)
 - [Help and support](#help-and-support)
+- [License](#license)
+- [Third-party notices](#third-party-notices)
 
 ## Quick start
 
@@ -47,8 +60,11 @@ fetch the package. If `git --version` doesn't work in a terminal, install Git an
 and Unity Hub first.
 
 To pin a release, add its tag:
-`https://github.com/chatguard-dev/chat-guard-unity.git#v0.4.1`. The [changelog](CHANGELOG.md) lists
+`https://github.com/chatguard-dev/chat-guard-unity.git#v0.5.0`. The [changelog](CHANGELOG.md) lists
 what changed in each release.
+
+Got Chat Guard from the Unity Asset Store? Import it from **Package Manager → My Assets** instead,
+then go on to step 2.
 
 ### 2. Get a test key
 
@@ -63,7 +79,7 @@ day for the whole organization.
 Add this script anywhere under `Assets`:
 
 ```csharp
-using ChatGuard.Unity;
+using ChatGuard;
 using UnityEngine;
 
 public static class ChatGuardSetup
@@ -85,8 +101,8 @@ first time a message is checked.
 ### 4. Check a message before other players see it
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;   // ModerationAction
-using ChatGuard.Unity;
 
 void OnChatMessage(string playerId, string text)
 {
@@ -111,12 +127,34 @@ sender's game. [Integrations](#integrations) shows it for each stack.
 
 ### 5. See it work
 
-- **Package Manager → Chat Guard → Samples → Basic Chat:** import it and press Play for a chat window
-  with threshold sliders and a verdict log. It uses the key from step 3.
-- **Window → Chat Guard → Tester:** pick a config asset that holds your key, type a message and see
-  the verdict without entering Play mode.
-- In the dashboard, the **Verdict log** lists every check, and a change on **Thresholds** applies from
-  the next message.
+**The Basic Chat sample.** In **Package Manager → Chat Guard → Samples → Basic Chat**, click
+**Import**, open the scene it adds, `Assets/Samples/Chat Guard/<version>/Basic Chat/BasicChat.unity`,
+and press Play. It uses the key from step 3; with no key, the local word filter answers on the device.
+Choose who is speaking in the player picker next to the message field and type, or press **Play
+example** to send the example chat from chatguard.dev, one line every 820 ms. Each check sends the
+speaker's player id and the last five delivered lines as context, as your game would. Two windows show
+the same chat from two sides:
+
+- **Chat Guard** (what you see) logs every line: *checking* for as long as its check takes, then the
+  action, the reason and, for a server answer, the time. The reason is *repeat* for an answer from
+  the cache, *severity* with its value when severity decided a block, otherwise the top category with
+  its score (on an allowed line only when that score is 0.20 or more); *local* is added when the word
+  filter or the device decided.
+- **Global chat** (what players see) shows only the lines other players get: the allowed and flagged
+  ones.
+
+Click a line in the log to see its six scores, severity and target in **Last check**. **Clear** empties
+the log, the chat and the context. The **Local thresholds** sliders apply only when the package
+decides on the device, with no key, no answer or a degraded one; the dashboard's thresholds decide the
+rest. On a portrait screen (less than 1.2 times as wide as tall), the log, Last check and the
+thresholds share one window as tabs. The sample builds its UI in code with Unity UI and bundles its
+fonts ([Third-party notices](#third-party-notices)).
+
+**The Tester window.** Open **Window → Chat Guard → Tester**, pick a config asset that holds your key,
+type a message and see the verdict without entering Play mode.
+
+**The dashboard.** The **Verdict log** lists every check, and a change on **Thresholds** applies from
+the next message.
 
 Before you ship, replace the test key with the kind your setup needs. The next section says which.
 
@@ -148,8 +186,8 @@ leaked key: anyone can pull it out and spend your plan. The package guards again
 build fails on purpose when a `ChatGuardConfig` asset it ships holds a `cg_live_` key (Dedicated
 Server builds are exempt). A build ships the config assets under a `Resources` folder and the ones
 its scenes, `Resources` assets or Preloaded Assets (**Player Settings**) use, such as the config of a
-[Hook](#no-code-the-chat-guard-hook-component) in a scene. A server key that reaches a player at runtime logs a warning. On a server, read the key
-from an environment variable or your secret store.
+[Hook](#no-code-the-chat-guard-hook-component) in a scene. A server key that reaches a player at
+runtime logs a warning. On a server, read the key from an environment variable or your secret store.
 
 **Publishable keys** are made to ship inside the game, the way analytics keys are. They can only
 check messages and read usage, every request must name the player (`author.id`), and each key has a
@@ -166,11 +204,12 @@ for testing (see [WebGL builds](#webgl-builds)).
 ### Picking the key per build
 
 The build check reads the config assets a build ships (under `Resources`, or used by what the build
-includes); it can't see keys you pass from code. Let Unity's scripting defines pick the key for each build:
+includes); it can't see keys you pass from code. Let Unity's scripting defines pick the key for each
+build:
 
 ```csharp
 using System;
-using ChatGuard.Unity;
+using ChatGuard;
 using UnityEngine;
 
 public static class ChatGuardSetup
@@ -219,8 +258,8 @@ The server owns chat: players send their line to the server, the server checks i
 On Netcode 2.7 or newer (Unity 6):
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Unity.Netcode;
 
 public sealed class NetworkChat : NetworkBehaviour
@@ -264,8 +303,8 @@ the sender id comes from the connection, and no client can make a `[ClientRpc]` 
 players' screens. The one exception is the host's own screen, so the server draws that one itself:
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Unity.Netcode;
 
 public sealed class NetworkChat : NetworkBehaviour
@@ -319,8 +358,8 @@ The same shape with a `[Command]` that any player may call, `[ClientRpc]` for ev
 `[TargetRpc]` for the sender. Mirror fills in `sender` itself; clients never pass it.
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Mirror;
 
 public sealed class NetworkChat : NetworkBehaviour
@@ -362,8 +401,8 @@ host player sends a line.
 The same shape with `[ServerRpc]`, `[ObserversRpc]` and `[TargetRpc]`:
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using FishNet.Connection;
 using FishNet.Object;
 
@@ -407,8 +446,8 @@ the host in Host mode and, for scene objects, the Shared Mode Master Client in S
 players' devices, so use a publishable key there.
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Fusion;
 
 public sealed class NetworkChat : NetworkBehaviour
@@ -456,8 +495,8 @@ key. Let the Master Client check every line, and have everyone else show only li
 through it. Then a modified client can't skip the check unless it is the Master Client itself:
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Photon.Pun;
 using Photon.Realtime;
 
@@ -510,8 +549,8 @@ Enterprise Cloud or a self-hosted Photon Server.
 Check on the sender's device with a publishable key, then publish:
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Photon.Chat;
 
 // In your IChatClientListener; chatClient connected with new AuthenticationValues(playerId).
@@ -544,8 +583,8 @@ Vivox text chat has no hook where your own check could run before delivery, so c
 sender's device with a publishable key:
 
 ```csharp
+using ChatGuard;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using Unity.Services.Vivox;
 
 public async void Send(string channel, string text)
@@ -672,9 +711,11 @@ short timeout (2 s is plenty) and decide what your game does when no answer come
 
 ### No server of your own: the relay
 
-`Examples~/server-relay` is a small ASP.NET Core service (.NET 10) that you host. Your game sends it
-the message, and it calls Chat Guard with a server key that never reaches players' devices. Unity
-hides folders ending in `~`, so run it from a clone of this repository:
+The relay example is a small ASP.NET Core service (.NET 10) that you host. Your game sends it the
+message, and it calls Chat Guard with a server key that never reaches players' devices. It lives in
+the [GitHub repository](https://github.com/chatguard-dev/chat-guard-unity/tree/main/Examples~/server-relay)
+under `Examples~/server-relay` and is not part of the Asset Store copy. Run it from a clone of the
+repository:
 
 ```bash
 git clone https://github.com/chatguard-dev/chat-guard-unity.git
@@ -690,7 +731,8 @@ example relay answers `allow` with `degraded: true` and a `degraded_reason` the 
 (`upstream`, `upstream_rate_limit` or `timeout`). Change that to your own policy, and replace its
 shared-secret check with your own player authentication before you ship. A modified client can
 still skip the relay, so as with a publishable key, the check is advisory. The
-[relay's README](Examples~/server-relay/README.md) has a request to try it with.
+[relay's README](https://github.com/chatguard-dev/chat-guard-unity/blob/main/Examples~/server-relay/README.md)
+has a request to try it with.
 
 ## Handling the result
 
@@ -720,7 +762,7 @@ The rest of the result, for logging, analytics or your own policy:
 
 `ModerationAction`, `VerdictSet`, `VerdictCategory`, `TargetVerdict`, `TargetChoice` and
 `DegradedReason` live in the `ChatGuard.Core` namespace and `Thresholds` in `ChatGuard.Core.Scoring`;
-everything else is in `ChatGuard.Unity`.
+everything else is in `ChatGuard`.
 
 ### Feedback
 
@@ -823,14 +865,14 @@ public sealed class ChatWindow : MonoBehaviour
   token)` on the instance API. `destroyCancellationToken` exists from Unity 2022.2; on 2021.3 cancel
   your own `CancellationTokenSource` in `OnDestroy`, and with UniTask use
   `this.GetCancellationTokenOnDestroy()`.
-- **Cancelling the token is the same as `op.Cancel()`.** The request is aborted, `onCompleted` and
+- **Canceling the token is the same as `op.Cancel()`.** The request is aborted, `onCompleted` and
   `Completed` are not invoked, and `await` throws `OperationCanceledException` whose
-  `CancellationToken` is your token. A token that is already cancelled gives back a cancelled
-  operation without sending anything; one cancelled after the result arrived changes nothing.
+  `CancellationToken` is your token. A token that is already canceled gives back a canceled
+  operation without sending anything; one canceled after the result arrived changes nothing.
 - **One token can serve every message.** The SDK stops listening to the token when the operation
   finishes, so a long-lived token does not keep finished operations in memory.
-- **Cancel on the main thread where you can** (`destroyCancellationToken` is cancelled there). A
-  token cancelled on another thread still aborts the request on the main thread, when Unity next
+- **Cancel on the main thread where you can** (`destroyCancellationToken` is canceled there). A
+  token canceled on another thread still aborts the request on the main thread, when Unity next
   runs posted work (normally the next frame), so the code after `await` stays on the main thread.
 - **Timeouts are `TimeoutSeconds`, not `CancelAfter`.** `CancellationTokenSource.CancelAfter` and
   the `CancellationTokenSource(TimeSpan)` constructor need a timer thread, which WebGL does not
@@ -839,7 +881,7 @@ public sealed class ChatWindow : MonoBehaviour
   `await ChatGuardSdk.Moderate(text, playerId, this.GetCancellationTokenOnDestroy())`. Avoid
   `op.ToUniTask()` and `op.WithCancellation(token)`: UniTask adds those to every coroutine object,
   and for the operation they return a `UniTask` without the result, check it only once per frame,
-  and a cancelled token does not abort the request. Need a `UniTask<ModerationResult>`, for
+  and a canceled token does not abort the request. Need a `UniTask<ModerationResult>`, for
   `UniTask.WhenAll` for example? Wrap it:
   `async UniTask<ModerationResult> ModerateAsync(ModerationOperation op) => await op;`.
 
@@ -871,7 +913,7 @@ public void OnPlayerMessage(string playerId, string text)
 Add **Chat Guard Hook** (`ChatGuardUnityHook`) to a GameObject, assign a config asset, and wire
 `onDeliver`, `onSuppress` and `onModerated` to your chat UI. A UnityEvent, such as an input field's
 submit event, calls `Moderate(message)`. From code you can also call `Moderate(message, authorId)`,
-which sends exactly the id you pass. In-flight requests are cancelled when the component is
+which sends exactly the id you pass. In-flight requests are canceled when the component is
 destroyed. While its `configureStaticApi` box is ticked (the default), its `Awake` also calls
 `ChatGuardSdk.Configure(config)`, which replaces anything configured before it.
 
@@ -901,7 +943,7 @@ completes there. The SDK therefore exposes no `Task`s at all: `Moderate` returns
 `ModerationOperation` that you can yield (the same shape as `UnityWebRequestAsyncOperation`),
 `await` or drive with callbacks, and everything completes on the main thread. That works identically
 on every platform, WebGL included. Cancellation tokens are fine: `CancellationToken` lives in
-`System.Threading`, and cancelling one only runs callbacks.
+`System.Threading`, and canceling one only runs callbacks.
 
 ## Configuration
 
@@ -925,7 +967,7 @@ ChatGuardSdk.Configure(new ChatGuardSettings
 | `TimeoutSeconds` | `2` | The whole request budget, rounded up to whole seconds (1 to 600). When it runs out, `OfflineBehavior` answers. |
 | `OfflineBehavior` | `LocalFilter` | What to answer when Chat Guard can't be reached: `LocalFilter`, `AllowAll` or `BlockAll`. |
 | `LocalFilterWhenDegraded` | `true` | When the service answers with its own word filter, decide the action again on the device with your local thresholds. Only with `LocalFilter`. |
-| `DefaultLanguage` | `"en"` | Sent with messages that don't set `language`, and picks the local word list. Free uses the project's language; paid plans honour this one. |
+| `DefaultLanguage` | `"en"` | Sent with messages that don't set `language`, and picks the local word list. Free uses the project's language; paid plans honor this one. |
 | `ChannelType` | `"global"` | Sent with messages that don't set `channelType`: `global`, `team`, `dm` or `guild`. |
 | `AgeRating` | `"16+"` | Sent with messages that don't set `ageRating`; sexual content is judged against it. Null or empty sends none. |
 | `Thresholds` | null (built-in defaults) | A `ChatGuard.Core.Scoring.Thresholds` for decisions made on the device only; the dashboard's thresholds are separate. |
@@ -937,9 +979,9 @@ ChatGuardSdk.Configure(new ChatGuardSettings
 - **Call `Configure` again at any time**, for example after your server hands out a key: the next
   `Moderate` uses the new settings, and messages in flight finish with the old ones.
 - **Settings are checked and copied.** A timeout that is not a positive number of seconds up to 600,
-  or a `BaseUrl` that is neither empty nor an absolute http or https URL, throws `ArgumentException`. Editing the
-  object afterwards changes nothing; `client.Settings` returns a copy of what a client runs with,
-  key included, so don't log it verbatim.
+  or a `BaseUrl` that is neither empty nor an absolute http or https URL, throws `ArgumentException`.
+  Editing the object afterwards changes nothing; `client.Settings` returns a copy of what a client
+  runs with, key included, so don't log it verbatim.
 
 Per message, a `ModerationRequest` can override the channel, language and age rating and add context
 the model weighs:
@@ -1017,6 +1059,25 @@ column that tries values against real messages before you save them.
 the package makes itself, offline or degraded (see
 [If Chat Guard can't be reached](#if-chat-guard-cant-be-reached)).
 
+## Privacy
+
+- **The package sends data only when your code checks a message.** A request holds the message, the
+  player id you pass, the context you add (such as the channel, the language and the last few lines)
+  and your key. The package collects no analytics and reads no device identifiers.
+- **Each request also carries the game's bundle id** (`Application.identifier`, in the
+  `X-ChatGuard-App` header). It names the game, not a player. For Free organizations the service
+  keeps it for 30 days, to notice one game spread across several Free organizations.
+- **Message text isn't stored** unless your project turns on evidence logging in the dashboard.
+- **Messages are not used to train models.** Chat Guard doesn't use them for training, and the model
+  provider doesn't either, under its terms. Aggregate statistics that identify no player, never
+  message text or player ids, may be used to improve the built-in word lists.
+- **The Hook's install id** is random but persistent; see
+  [the Hook component](#no-code-the-chat-guard-hook-component) for when it is created and how to
+  avoid it.
+
+The [privacy notes](https://chatguard.dev/privacy) list what the service stores, for how long and
+who processes it.
+
 ## Troubleshooting
 
 | What you see | Why | What to do |
@@ -1048,11 +1109,29 @@ the package makes itself, offline or degraded (see
   write to us about a record, give its verdict id or request id.
 - **Security issues:** report them privately through
   [GitHub](https://github.com/chatguard-dev/chat-guard-unity/security/advisories/new) or to
-  support@chatguard.dev, never in a public issue. [SECURITY.md](.github/SECURITY.md) has the details.
+  support@chatguard.dev, never in a public issue.
+  [SECURITY.md](https://github.com/chatguard-dev/chat-guard-unity/blob/main/.github/SECURITY.md) has
+  the details.
 - **Service status:** `#status` on Discord and https://github.com/chatguard-dev/status.
 
 Never post a server or test key (`cg_live_…` or `cg_test_…`) in public; the Discord server blocks
 messages that contain one. If a key leaks, revoke it on the dashboard's **API keys** page.
+
+## License
+
+A copy from the Unity Asset Store is covered by the
+[Standard Unity Asset Store EULA](https://unity.com/legal/as-terms). A copy from GitHub is covered by
+[LICENSE.md](https://github.com/chatguard-dev/chat-guard-unity/blob/main/LICENSE.md) in the
+repository. Either way, using the Chat Guard service is covered by the
+[Chat Guard terms](https://chatguard.dev/terms).
+
+You may include this package, changed or unchanged, in the builds of your games and apps.
+
+## Third-party notices
+
+The Basic Chat sample includes the fonts Inter, Inter Tight and JetBrains Mono under the SIL Open Font
+License 1.1; see `Third-Party Notices.txt` in the package for details. The font files and each
+family's license text are in the sample's `Fonts` folder.
 
 ## About `Runtime/Core`
 

@@ -5,23 +5,25 @@ using System.Threading;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     /// <summary>
-    /// Handle for one in-flight moderation call. Yield it in a coroutine (<c>yield return op;</c>), poll
-    /// <see cref="IsDone"/>, subscribe to <see cref="Completed"/>, or <c>await</c> it (see <see cref="GetAwaiter"/>).
-    /// End it early with <see cref="Cancel"/> or with the <see cref="CancellationToken"/> given to <c>Moderate</c>.
-    /// Completes on the main thread; no Tasks or threads are involved, so it behaves the same on every platform
-    /// including WebGL.
+    /// Handle for one moderation call, returned by <c>Moderate</c>. Yield it in a coroutine, poll
+    /// <see cref="IsDone"/>, subscribe to <see cref="Completed"/>, or <c>await</c> it. End it early with
+    /// <see cref="Cancel"/> or with the <see cref="CancellationToken"/> given to <c>Moderate</c>.
     /// </summary>
+    /// <remarks>
+    /// It completes on the main thread, and may already be done when <c>Moderate</c> returns (for example without an
+    /// API key). No Tasks or threads are involved, so it behaves the same on every platform, WebGL included.
+    /// </remarks>
     public sealed class ModerationOperation : CustomYieldInstruction
     {
         private Action<ModerationResult>? _completed;
         private Action? _finished;
         private UnityWebRequest? _request;
 
-        // Everything about the token given to Moderate. Created only for a token that can be cancelled, so an operation
-        // without one carries nothing but this null reference. Set before the token can call back and never cleared.
+        // Null unless Moderate got a token that can be canceled, so operations without one allocate nothing extra.
+        // Set before the token can call back and never cleared.
         private TokenLink? _tokenLink;
 
         internal ModerationOperation(ModerationRequest request)
@@ -32,23 +34,24 @@ namespace ChatGuard.Unity
         /// <summary>The request this operation moderates.</summary>
         public ModerationRequest Request { get; }
 
-        /// <summary>True once a result is available or the operation was cancelled.</summary>
+        /// <summary>True once a result is available or the operation was canceled.</summary>
         public bool IsDone { get; private set; }
 
         /// <summary>
-        /// True when <see cref="Cancel"/> or the token given to <c>Moderate</c> ended the operation; <see cref="Result"/>
-        /// stays null.
+        /// True when <see cref="Cancel"/> or the token given to <c>Moderate</c> ended the operation.
+        /// <see cref="Result"/> then stays null.
         /// </summary>
-        public bool IsCancelled { get; private set; }
+        public bool IsCanceled { get; private set; }
 
-        /// <summary>Null until done, and stays null when cancelled.</summary>
+        /// <summary>The result once the operation completes; null before that and after a cancel.</summary>
         public ModerationResult? Result { get; private set; }
 
         public override bool keepWaiting => !IsDone;
 
         /// <summary>
-        /// Raised once with the result. Subscribing after completion invokes the handler immediately (same contract as
-        /// <c>AsyncOperation.completed</c>). Never invoked once the operation is cancelled.
+        /// Raised once, on the main thread, with the result. A handler added after completion runs immediately, as with
+        /// <c>AsyncOperation.completed</c>. Not raised for a canceled operation. An exception from a handler is logged
+        /// and does not stop the others.
         /// </summary>
         public event Action<ModerationResult> Completed
         {
@@ -78,24 +81,30 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Makes the operation awaitable: <c>ModerationResult result = await op;</c>. The awaiter is a plain struct
-        /// implementing <see cref="INotifyCompletion"/> (System.Runtime.CompilerServices), so no Tasks are involved
-        /// and it works from <c>async void</c> methods, Unity 2023.1+ <c>async Awaitable</c> methods and third-party
-        /// awaitable libraries.
-        /// The continuation runs synchronously on the main thread when the operation finishes, inline when it already
-        /// has. Awaiting a cancelled operation throws <see cref="OperationCanceledException"/>; when the token given to
-        /// <c>Moderate</c> cancelled it, the exception's <see cref="OperationCanceledException.CancellationToken"/> is
-        /// that token.
+        /// Makes the operation awaitable: <c>ModerationResult result = await op;</c>. Works in <c>async void</c>
+        /// methods, in <c>async Awaitable</c> methods (Unity 2023.1+) and with third-party async libraries such as
+        /// UniTask.
         /// </summary>
+        /// <remarks>
+        /// The code after <c>await</c> runs on the main thread as soon as the operation finishes, or inline when it
+        /// already has. Awaiting a canceled operation throws <see cref="OperationCanceledException"/> (see
+        /// <see cref="Awaiter.GetResult"/>).
+        /// </remarks>
         public Awaiter GetAwaiter()
         {
             return new Awaiter(this);
         }
 
         /// <summary>
-        /// Aborts the in-flight request. Marks the operation done and cancelled; no callback is invoked. Cancelling the
-        /// token given to <c>Moderate</c> does the same.
+        /// Ends the operation early and aborts its web request. Does nothing once the operation is done. Call it on the
+        /// main thread.
         /// </summary>
+        /// <remarks>
+        /// <see cref="IsDone"/> and <see cref="IsCanceled"/> become true. No <see cref="Completed"/> handler runs,
+        /// including the callback given to <c>Moderate</c>, and an <c>await</c> on the operation throws
+        /// <see cref="OperationCanceledException"/>. Canceling the token given to <c>Moderate</c> has the same effect.
+        /// To cancel from another thread, cancel that token instead; the SDK moves the cancel to the main thread.
+        /// </remarks>
         public void Cancel()
         {
             if (IsDone)
@@ -104,7 +113,7 @@ namespace ChatGuard.Unity
             }
 
             IsDone = true;
-            IsCancelled = true;
+            IsCanceled = true;
             _completed = null;
             _tokenLink?.Registration.Dispose();
             UnityWebRequest? request = _request;
@@ -130,15 +139,14 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Ends the operation like <see cref="Cancel"/> when <paramref name="cancellationToken"/> is cancelled, right away
-        /// when it already is. Called on the main thread by <c>Moderate</c> before a request is sent. Does nothing, and
-        /// allocates nothing, for a token that cannot be cancelled (<see cref="CancellationToken.None"/>, the default). The
-        /// registration is released when the operation finishes, so one long-lived token (a component's
-        /// <c>destroyCancellationToken</c>) does not keep every finished operation alive. A token cancelled on another
-        /// thread (a <c>CancelAfter</c> timer outside WebGL, for example) takes effect through the main thread's
-        /// <see cref="SynchronizationContext"/>, so the request is still aborted and awaiters still resume on the main
-        /// thread.
+        /// Cancels the operation like <see cref="Cancel"/> when <paramref name="cancellationToken"/> is canceled, or
+        /// right away when it already is. <c>Moderate</c> calls it before creating the request, on the main thread, so
+        /// the context and thread id captured here are the main thread's. A token that cannot be canceled is ignored.
         /// </summary>
+        /// <remarks>
+        /// The registration is released when the operation finishes, so one long-lived token, such as a component's
+        /// <c>destroyCancellationToken</c>, does not keep finished operations alive.
+        /// </remarks>
         internal void CancelOn(CancellationToken cancellationToken)
         {
             if (!cancellationToken.CanBeCanceled || IsDone)
@@ -157,8 +165,8 @@ namespace ChatGuard.Unity
             CancellationTokenRegistration registration = RegisterWithoutExecutionContext(cancellationToken);
             if (IsDone)
             {
-                // Another thread cancelled the token just before Register, which then ran the callback here and ended
-                // the operation; the registration has nothing left to guard.
+                // Another thread canceled the token just before Register, so Register ran the callback here and the
+                // operation is already canceled. The registration has nothing left to guard.
                 registration.Dispose();
                 return;
             }
@@ -167,27 +175,26 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Registers <see cref="OnTokenCancelled"/> with the token without capturing the execution context, which
-        /// <see cref="CancellationToken.Register(Action{object}, object)"/> otherwise does on every call (about 0.9 KB on
-        /// Unity's Mono). Nothing needs that context: the callback only cancels the operation or posts the cancel to the
-        /// main thread's <see cref="SynchronizationContext"/> captured in <see cref="CancelOn"/>, and the awaiter
-        /// continuations a cancel runs are resumed as on completion, where an async method's builder restores the
-        /// method's own context. Flow is suppressed only around Register and restored on this thread in a finally. When
-        /// it is already suppressed, Register captures nothing anyway and <see cref="ExecutionContext.SuppressFlow"/>
-        /// would throw, so it is left as it is. Inside an async method, suppressing first copies that method's
-        /// execution context (about 160 B on Unity's Mono), still far less than a capture. The callback lambda captures
-        /// nothing, so the compiler caches a single delegate for every call.
+        /// Registers <see cref="OnTokenCanceled"/> without capturing the execution context, which
+        /// <see cref="CancellationToken.Register(Action{object}, object)"/> otherwise captures on every call (about
+        /// 0.9 KB on Unity's Mono). The callback does not need that context: it only cancels or posts the cancel, and
+        /// an awaiting async method restores its own when it resumes.
         /// </summary>
+        /// <remarks>
+        /// When flow is already suppressed, Register captures nothing and <see cref="ExecutionContext.SuppressFlow"/>
+        /// would throw, so it is left alone. Inside an async method, suppressing copies that method's context (about
+        /// 160 B on Unity's Mono), still far less than a capture.
+        /// </remarks>
         private CancellationTokenRegistration RegisterWithoutExecutionContext(CancellationToken cancellationToken)
         {
             bool suppress = !ExecutionContext.IsFlowSuppressed();
             AsyncFlowControl flow = suppress ? ExecutionContext.SuppressFlow() : default;
             try
             {
-                // Without a captured synchronization context either (useSynchronizationContext is false): the callback
-                // runs on the cancelling thread and OnTokenCancelled decides where Cancel runs. A captured context would
-                // make a background Cancel() wait for the main thread instead.
-                return cancellationToken.Register(static state => ((ModerationOperation)state!).OnTokenCancelled(), this);
+                // This overload captures no synchronization context either, so the callback runs on the canceling
+                // thread and OnTokenCanceled picks where to cancel. A captured one would make a background Cancel()
+                // wait for the main thread.
+                return cancellationToken.Register(static state => ((ModerationOperation)state!).OnTokenCanceled(), this);
             }
             finally
             {
@@ -223,15 +230,16 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The token's callback, on whichever thread cancelled it. On the main thread (or when no main-thread context was
-        /// captured) the operation is cancelled right away; from any other thread the cancel is posted to the main thread,
-        /// because <see cref="UnityWebRequest.Abort"/> and the awaiter continuations belong there. The thread is compared by
-        /// id: <see cref="SynchronizationContext.Current"/> depends on the context the cancelling code runs in, not only on
-        /// the thread (on Mono, code running in a captured execution context sees a copy of Unity's synchronization
-        /// context). Reads only <see cref="TokenLink"/> fields that were set before the registration and never change
-        /// afterwards.
+        /// The token's callback, run on whichever thread canceled the token. On the main thread, or when no
+        /// main-thread context was captured, it cancels right away. From any other thread it posts the cancel to the
+        /// main thread, because <see cref="UnityWebRequest.Abort"/> and the awaiter continuations belong there.
         /// </summary>
-        private void OnTokenCancelled()
+        /// <remarks>
+        /// Threads are compared by id, not by <see cref="SynchronizationContext.Current"/>. On Mono, code in a captured
+        /// execution context sees a copy of Unity's synchronization context, so comparing references can fail even on
+        /// the main thread.
+        /// </remarks>
+        private void OnTokenCanceled()
         {
             TokenLink link = _tokenLink!;
             SynchronizationContext? main = link.MainContext;
@@ -244,7 +252,9 @@ namespace ChatGuard.Unity
             main.Post(static state => ((ModerationOperation)state!).CancelFromToken(), this);
         }
 
-        /// <summary>Cancels on behalf of the token given to <c>Moderate</c>, so an awaiter's exception names it.</summary>
+        /// <summary>
+        /// Cancels on behalf of the token given to <c>Moderate</c>, so an awaiter's exception carries that token.
+        /// </summary>
         private void CancelFromToken()
         {
             if (IsDone)
@@ -252,23 +262,24 @@ namespace ChatGuard.Unity
                 return;
             }
 
-            _tokenLink!.CancelledOperation = true;
+            _tokenLink!.CanceledOperation = true;
             Cancel();
         }
 
         /// <summary>
-        /// The token behind a cancellation, for <see cref="OperationCanceledException.CancellationToken"/>: the token given
-        /// to <c>Moderate</c> when it ended the operation, <see cref="CancellationToken.None"/> after <see cref="Cancel"/>.
+        /// The token an awaiter's <see cref="OperationCanceledException"/> carries: the one given to <c>Moderate</c>
+        /// when it ended the operation, <see cref="CancellationToken.None"/> after <see cref="Cancel"/>.
         /// </summary>
-        private CancellationToken CancelledBy()
+        private CancellationToken CanceledBy()
         {
             TokenLink? link = _tokenLink;
-            return link != null && link.CancelledOperation ? link.Token : CancellationToken.None;
+            return link != null && link.CanceledOperation ? link.Token : CancellationToken.None;
         }
 
         /// <summary>
-        /// Registers an awaiter continuation. Unlike <see cref="Completed"/> it also runs after <see cref="Cancel"/>,
-        /// because an <c>await</c> must always resume (and then throw) rather than hang.
+        /// Registers an awaiter continuation, or runs it at once when the operation is done. Unlike
+        /// <see cref="Completed"/> it also runs after <see cref="Cancel"/>, because an <c>await</c> must resume and throw
+        /// rather than hang.
         /// </summary>
         private void RegisterFinished(Action continuation)
         {
@@ -281,7 +292,10 @@ namespace ChatGuard.Unity
             _finished += continuation;
         }
 
-        /// <summary>Runs the awaiter continuations; called once, from <see cref="Complete"/> or <see cref="Cancel"/>, after the <see cref="Completed"/> handlers.</summary>
+        /// <summary>
+        /// Runs the awaiter continuations once, after the <see cref="Completed"/> handlers, from <see cref="Complete"/>
+        /// or <see cref="Cancel"/>.
+        /// </summary>
         private void FireFinished()
         {
             Action? continuations = _finished;
@@ -297,7 +311,10 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>User callbacks must not break the SDK's own cleanup (the request is disposed after this returns).</summary>
+        /// <summary>
+        /// Runs user code and logs anything it throws, so a failing callback cannot skip the remaining callbacks and
+        /// continuations or escape into the SDK's own code.
+        /// </summary>
         private static void Invoke(Action<ModerationResult> handler, ModerationResult result)
         {
             try
@@ -323,11 +340,8 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The state an operation keeps for the token given to <c>Moderate</c>, allocated only when that token can be
-        /// cancelled. The readonly fields are set before the token can call back, so the callback may read them on any
-        /// thread. <see cref="Registration"/> is set once at the end of <see cref="CancelOn"/>, after Register has
-        /// returned, and is disposed where the operation finishes; <see cref="CancelledOperation"/> is set only by
-        /// <see cref="CancelFromToken"/>, just before it cancels the operation.
+        /// What an operation keeps for a token given to <c>Moderate</c> that can be canceled. The readonly fields are
+        /// set before the token can call back, so the callback may read them on any thread.
         /// </summary>
         private sealed class TokenLink
         {
@@ -342,7 +356,7 @@ namespace ChatGuard.Unity
             internal CancellationTokenRegistration Registration;
 
             /// <summary>True when this token, not <see cref="Cancel"/>, ended the operation.</summary>
-            internal bool CancelledOperation;
+            internal bool CanceledOperation;
 
             internal TokenLink(CancellationToken token, SynchronizationContext? mainContext, int mainThreadId)
             {
@@ -352,12 +366,7 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>
-        /// Awaiter for <see cref="ModerationOperation"/>; obtained through <see cref="GetAwaiter"/> (the compiler does
-        /// that for <c>await</c>). The continuation runs once the operation finishes for any reason, completed or
-        /// cancelled, on the main thread. Only <see cref="INotifyCompletion"/> is used, which lives in
-        /// System.Runtime.CompilerServices; nothing here depends on Tasks, threads or timers.
-        /// </summary>
+        /// <summary>The awaiter behind <c>await op</c>; the compiler uses it for you.</summary>
         public readonly struct Awaiter : INotifyCompletion
         {
             private readonly ModerationOperation _operation;
@@ -367,7 +376,7 @@ namespace ChatGuard.Unity
                 _operation = operation;
             }
 
-            /// <summary>True once the operation is done (completed or cancelled); the compiler then calls <see cref="GetResult"/> inline.</summary>
+            /// <summary>True once the operation is done (completed or canceled); the compiler then calls <see cref="GetResult"/> inline.</summary>
             public bool IsCompleted => _operation.IsDone;
 
             /// <summary>Runs <paramref name="continuation"/> on the main thread when the operation finishes, or immediately when it already has.</summary>
@@ -381,10 +390,13 @@ namespace ChatGuard.Unity
                 _operation.RegisterFinished(continuation);
             }
 
-            /// <summary>
-            /// The result once completed; throws <see cref="OperationCanceledException"/> when the operation was cancelled,
-            /// carrying the cancelling token when it was the one given to <c>Moderate</c> (otherwise <see cref="CancellationToken.None"/>).
-            /// </summary>
+            /// <summary>Returns the operation's result; the compiler calls it when <c>await</c> resumes.</summary>
+            /// <exception cref="OperationCanceledException">
+            /// The operation was canceled. Its <see cref="OperationCanceledException.CancellationToken"/> is the token
+            /// given to <c>Moderate</c> when that token ended the operation, otherwise
+            /// <see cref="CancellationToken.None"/>.
+            /// </exception>
+            /// <exception cref="InvalidOperationException">The operation has not finished yet.</exception>
             public ModerationResult GetResult()
             {
                 ModerationResult? result = _operation.Result;
@@ -393,9 +405,9 @@ namespace ChatGuard.Unity
                     return result;
                 }
 
-                if (_operation.IsCancelled)
+                if (_operation.IsCanceled)
                 {
-                    throw new OperationCanceledException("The moderation operation was cancelled.", _operation.CancelledBy());
+                    throw new OperationCanceledException("The moderation operation was canceled.", _operation.CanceledBy());
                 }
 
                 throw new InvalidOperationException("The moderation operation has not completed yet.");

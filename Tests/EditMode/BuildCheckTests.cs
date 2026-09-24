@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using ChatGuard.Editor;
-using ChatGuard.Unity;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -44,9 +43,9 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// A config outside Resources ships when a scene in the build (here a Chat Guard Hook in it) or an asset under
-        /// Resources (here a prefab) references it, so the check inspects it then, and only then. The assets live in a
-        /// temporary folder that is deleted afterwards.
+        /// A config outside Resources ships only when something in the build references it: here a Chat Guard Hook in a
+        /// build scene, then a prefab under Resources. The check must inspect such a config and skip one nothing
+        /// references. The test assets live in a temporary folder that is deleted afterwards.
         /// </summary>
         [Test]
         public void ConfigsUsedByBuildScenesOrResourcesAssets_AreInspected()
@@ -60,8 +59,9 @@ namespace ChatGuard.Tests
                 string unusedPath = folder + "/UnusedConfig.asset";
                 CreateConfig(unusedPath, Live);
 
-                // Unity cannot open a scene next to an untitled one (the usual state of a batch-mode test run), so then
-                // the new scene replaces it and an empty untitled scene is put back afterwards.
+                // Unity cannot add a scene next to an untitled one, the usual state of a batch-mode test run. The new
+                // scene then replaces it, and an empty untitled scene is put back afterwards. A dirty untitled scene
+                // would lose its changes, so the test is skipped instead.
                 Scene active = SceneManager.GetActiveScene();
                 bool untitled = SceneManager.sceneCount == 1 && string.IsNullOrEmpty(active.path);
                 if (untitled && active.isDirty)
@@ -113,8 +113,8 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// Every player build loads the Preloaded Assets of Player Settings, so a config in that list ships and the check
-        /// inspects it; an empty slot in the list is skipped. The list is put back and the temporary folder deleted afterwards.
+        /// Every player build ships the Preloaded Assets listed in Player Settings, so the check must inspect a config
+        /// in that list and skip empty slots. The list is restored and the temporary folder deleted afterwards.
         /// </summary>
         [Test]
         public void ConfigsInPreloadedAssets_AreInspected()

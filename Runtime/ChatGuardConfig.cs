@@ -3,21 +3,32 @@ using System;
 using ChatGuard.Core.Scoring;
 using UnityEngine;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
+    /// <summary>
+    /// What the client answers when the server gives no usable answer (see
+    /// <see cref="ChatGuardSettings.OfflineBehavior"/>). These answers are degraded
+    /// (<see cref="ModerationResult.Degraded"/>) and come from <see cref="ResultSource.Local"/>.
+    /// </summary>
     public enum OfflineBehavior
     {
-        /// <summary>Deliver every message when the server cannot be reached.</summary>
+        /// <summary>Allow every message (severity 0).</summary>
         AllowAll,
 
-        /// <summary>Run the built-in dictionary filter (same word lists as the server's fallback).</summary>
+        /// <summary>
+        /// Check each message with the local filter (built-in word lists, run on the device).
+        /// <see cref="ChatGuardSettings.Thresholds"/> sets the action.
+        /// </summary>
         LocalFilter,
 
-        /// <summary>Hold every message until the server is reachable again.</summary>
+        /// <summary>Block every message (severity 3).</summary>
         BlockAll,
     }
 
-    /// <summary>Per-category thresholds; a negative value disables that level (mirrors the dashboard editor).</summary>
+    /// <summary>
+    /// Inspector form of <see cref="CategoryThresholds"/>: flag, hide and block levels (0 to 1) for one category. A
+    /// negative value turns a level off, like an empty field on the dashboard.
+    /// </summary>
     [Serializable]
     public sealed class CategoryThresholdsOverride
     {
@@ -33,6 +44,10 @@ namespace ChatGuard.Unity
         }
     }
 
+    /// <summary>
+    /// Inspector form of <see cref="Thresholds"/>, used when <see cref="ChatGuardConfig.overrideThresholds"/> is
+    /// ticked. Its defaults are the built-in ones.
+    /// </summary>
     [Serializable]
     public sealed class ThresholdsOverride
     {
@@ -48,8 +63,15 @@ namespace ChatGuard.Unity
 
         public CategoryThresholdsOverride trading = new CategoryThresholdsOverride { flag = 0.55f, hide = -1f, block = -1f };
 
+        /// <summary>
+        /// Severity (0 to 3) at or above which a message is blocked. Above 3 turns severity blocking off.
+        /// </summary>
         [Range(0f, 4f)] public float severityBlock = 2.5f;
 
+        /// <summary>
+        /// Flags a message when the model's score confidence is below this. No effect in the Unity client, whose local
+        /// decisions have no model score.
+        /// </summary>
         [Range(0f, 1f)] public float flagBelowScoreConfidence = 0.5f;
 
         public Thresholds ToCore()
@@ -69,12 +91,23 @@ namespace ChatGuard.Unity
     }
 
     /// <summary>
-    /// Optional inspector-editable settings asset for <see cref="ChatGuardClient"/>. Create one via Assets → Create →
-    /// Chat Guard → Config and save it as <c>Assets/Resources/ChatGuardConfig.asset</c> for the zero-code path; the same
-    /// options are available from code through <see cref="ChatGuardSettings"/> (<see cref="ToSettings"/> converts).
-    /// A client build ships a publishable (cg_pub_) key; test (cg_test_) keys are for the Editor and development builds,
-    /// and cg_live_ server keys belong on your game server or relay (see README, "Where the key lives").
+    /// Optional settings asset for <see cref="ChatGuardClient"/>, edited in the Inspector.
+    /// <see cref="ChatGuardSettings"/> holds the same options for setup from code, and <see cref="ToSettings"/>
+    /// converts an asset into one.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For setup without code, create one (Assets → Create → Chat Guard → Config) and save it as
+    /// <c>Assets/Resources/ChatGuardConfig.asset</c>. <see cref="ChatGuardSdk"/> loads it on first use unless
+    /// <c>Configure</c> was called. <see cref="ChatGuardSdk.Configure(ChatGuardConfig)"/> and a
+    /// <see cref="ChatGuardUnityHook"/> also take any config asset.
+    /// </para>
+    /// <para>
+    /// For which key to use, see <see cref="ChatGuardSettings.ApiKey"/>. A player build other than a Dedicated Server
+    /// build fails if a config asset it ships holds a <c>cg_live_</c> key. A build with Development Build unticked
+    /// also fails on a <c>cg_test_</c> key.
+    /// </para>
+    /// </remarks>
     [CreateAssetMenu(menuName = "Chat Guard/Config", fileName = "ChatGuardConfig")]
     public sealed class ChatGuardConfig : ScriptableObject
     {
@@ -85,7 +118,7 @@ namespace ChatGuard.Unity
         [Tooltip("Where requests go. Keep the default (https://api.chatguard.dev) unless a proxy of your own serves /v1/moderate. Empty also means the default.")]
         public string baseUrl = ChatGuardSettings.DefaultBaseUrl;
 
-        [Tooltip("Whole request budget in seconds, rounded up to whole seconds (minimum 1 s); on expiry the offline behaviour applies.")]
+        [Tooltip("Whole request budget in seconds, rounded up to whole seconds (minimum 1 s); on expiry the offline behavior applies.")]
         [Range(0.5f, 10f)] public float timeoutSeconds = 2f;
 
         [Header("Defaults sent with every message")]
@@ -103,17 +136,26 @@ namespace ChatGuard.Unity
         [Tooltip("Re-run the local filter with the thresholds below when the server answers with degraded=true.")]
         public bool localFilterWhenDegraded = true;
 
+        /// <summary>
+        /// When ticked, the client's local-filter decisions use <see cref="thresholds"/> instead of the built-in
+        /// defaults. Your project's thresholds on the dashboard are not affected.
+        /// </summary>
         [Header("Thresholds (override the project's server-side thresholds for local decisions)")]
         public bool overrideThresholds;
 
         public ThresholdsOverride thresholds = new ThresholdsOverride();
 
+        /// <summary>
+        /// The thresholds a client set up from this asset uses for its local-filter decisions:
+        /// <see cref="thresholds"/> when <see cref="overrideThresholds"/> is ticked, otherwise the built-in defaults.
+        /// A new object on every read.
+        /// </summary>
         public Thresholds EffectiveThresholds => overrideThresholds ? thresholds.ToCore() : Thresholds.Default();
 
         /// <summary>
-        /// The asset's values as a plain <see cref="ChatGuardSettings"/> (a fresh object each call). The thresholds
-        /// override is copied only when <see cref="overrideThresholds"/> is ticked; otherwise
-        /// <see cref="ChatGuardSettings.Thresholds"/> is null, which means the built-in defaults.
+        /// Returns the asset's values as a new <see cref="ChatGuardSettings"/>, which you can adjust in code. Its
+        /// <see cref="ChatGuardSettings.Thresholds"/> is null (the built-in defaults) unless
+        /// <see cref="overrideThresholds"/> is ticked.
         /// </summary>
         public ChatGuardSettings ToSettings()
         {

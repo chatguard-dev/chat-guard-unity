@@ -4,8 +4,9 @@ using System;
 namespace ChatGuard.Core.Scoring
 {
     /// <summary>
-    /// Weights for <see cref="SeverityCalculator"/>. Config, not code: the API loads these from
-    /// appsettings (Moderation:Severity) and projects may override them in their thresholds JSON.
+    /// How much each category, and the model's Score, counts toward severity in <see cref="SeverityCalculator"/>.
+    /// Server defaults come from appsettings (<c>Moderation:Severity</c>); projects override them on the dashboard's
+    /// Thresholds page. The Unity client's own decisions use <see cref="Default"/>.
     /// </summary>
     public sealed class SeverityWeights
     {
@@ -43,13 +44,13 @@ namespace ChatGuard.Core.Scoring
             }
         }
 
-        /// <summary>Sum of the category weights (must be positive for the weights to be usable).</summary>
+        /// <summary>Sum of the category weights; the server refuses project weights unless it is positive.</summary>
         public double CategorySum()
         {
             return Insult + Threat + Hate + Sexual + Spam + Trading;
         }
 
-        /// <summary>The largest category weight; the severity term is normalized by it.</summary>
+        /// <summary>The largest category weight, which the verdict part of severity is divided by.</summary>
         public double CategoryMax()
         {
             double max = 0;

@@ -2,14 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using ChatGuard.Unity;
 using NUnit.Framework;
 
 namespace ChatGuard.Tests
 {
     /// <summary>
-    /// MiniJson.Parse: strings with and without escapes (the fast path and the escape loop), keys, numbers, errors,
-    /// truncated input and the nesting limit.
+    /// <c>MiniJson.Parse</c>: strings with and without escapes, keys, numbers, error messages, truncated input and the
+    /// nesting limit.
     /// </summary>
     public class MiniJsonTests
     {
@@ -108,7 +107,7 @@ namespace ChatGuard.Tests
         [Test]
         public void Parse_EndOfInputWhereAValueOrKeyShouldFollow_ThrowsFormatException()
         {
-            // A key expected at the end of the input used to read past it (IndexOutOfRangeException).
+            // Reading past the end would throw IndexOutOfRangeException, which TryParseResponse does not catch.
             Assert.That(Assert.Throws<FormatException>(() => MiniJson.Parse("{\"action\":\"hide\",")).Message, Is.EqualTo("Expected string at 17"));
             Assert.That(Assert.Throws<FormatException>(() => MiniJson.Parse("{")).Message, Is.EqualTo("Expected string at 1"));
             Assert.That(Assert.Throws<FormatException>(() => MiniJson.Parse("{ \n")).Message, Is.EqualTo("Expected string at 3"));
@@ -160,7 +159,10 @@ namespace ChatGuard.Tests
             Assert.Throws<FormatException>(() => MiniJson.Parse(Nested("[{\"k\":", "[]", "}]", MiniJson.MaxDepth / 2)));
         }
 
-        /// <summary>Nesting deep enough to overflow the stack of an unlimited recursive reader fails like other malformed input.</summary>
+        /// <summary>
+        /// Nesting that would overflow the stack of an unlimited recursive reader throws FormatException like other
+        /// malformed input. A StackOverflowException cannot be caught and would end the game.
+        /// </summary>
         [Test]
         public void Parse_HugeNesting_ThrowsFormatExceptionWithoutOverflowingTheStack()
         {
@@ -170,7 +172,10 @@ namespace ChatGuard.Tests
             Assert.Throws<FormatException>(() => MiniJson.Parse(Nested("{\"a\":", "1", "}", Levels)));
         }
 
-        /// <summary><paramref name="open"/> <paramref name="levels"/> times, then <paramref name="inner"/>, then as many <paramref name="close"/>.</summary>
+        /// <summary>
+        /// <paramref name="open"/> repeated <paramref name="levels"/> times, then <paramref name="inner"/>, then
+        /// <paramref name="close"/> as many times.
+        /// </summary>
         private static string Nested(string open, string inner, string close, int levels)
         {
             var sb = new StringBuilder((open.Length + close.Length) * levels + inner.Length);

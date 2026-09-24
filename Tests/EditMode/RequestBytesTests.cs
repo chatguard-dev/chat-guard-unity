@@ -2,14 +2,14 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using ChatGuard.Unity;
 using NUnit.Framework;
 
 namespace ChatGuard.Tests
 {
     /// <summary>
-    /// Moderate uploads the request as UTF-8 written without the JSON string. These tests pin those bytes to
-    /// Encoding.UTF8.GetBytes(BuildRequestJson(request)), which is what earlier versions uploaded.
+    /// <c>ChatGuardClient.Moderate</c> writes the request body as UTF-8 into a reused buffer, without building the JSON
+    /// string. These tests check that the bytes equal <c>Encoding.UTF8.GetBytes(BuildRequestJson(request))</c>, so the
+    /// strings pinned in ClientJsonTests also pin the upload.
     /// </summary>
     public class RequestBytesTests
     {

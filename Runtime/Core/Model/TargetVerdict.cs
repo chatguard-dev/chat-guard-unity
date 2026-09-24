@@ -3,13 +3,21 @@ using System;
 
 namespace ChatGuard.Core
 {
-    /// <summary>Options of the Jev "target" Choice question.</summary>
+    /// <summary>Who a message is aimed at, as judged by the model.</summary>
     public enum TargetChoice
     {
+        /// <summary>
+        /// Another specific player: the one addressed as "you", a named player, or an author in the request's
+        /// <c>thread</c>.
+        /// </summary>
         OtherUser = 0,
+        /// <summary>A group: a team, everyone in the chat, or a demographic group.</summary>
         Group = 1,
+        /// <summary>The author, talking about themself.</summary>
         Self = 2,
+        /// <summary>Nobody in particular: a general statement, a question, or talk about the match.</summary>
         Nobody = 3,
+        /// <summary>Something else, such as the game, its developers, an item or the situation.</summary>
         Other = 4,
     }
 
@@ -42,7 +50,7 @@ namespace ChatGuard.Core
         }
     }
 
-    /// <summary>Who the message is directed at, with the Choice confidence reported by Jev.</summary>
+    /// <summary>The model's answer to who a message is aimed at, and how sure it is.</summary>
     public sealed class TargetVerdict
     {
         public TargetVerdict(TargetChoice choice, double confidence)
@@ -53,6 +61,7 @@ namespace ChatGuard.Core
 
         public TargetChoice Choice { get; }
 
+        /// <summary>The model's confidence in <see cref="Choice"/>, from 0 to 1.</summary>
         public double Confidence { get; }
     }
 }

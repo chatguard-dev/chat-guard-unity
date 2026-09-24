@@ -2,15 +2,23 @@
 namespace ChatGuard.Core.Text
 {
     /// <summary>
-    /// Rough token estimate for budgeting Jev state. The Jev docs publish no tokenizer; a live
-    /// measurement on 2026-09-22 gave ≈1.7 characters per token for JSON state plus questions, so
-    /// chars/3 is used as a conservative estimate for free text (the API refills its rate-limit
-    /// bucket from the exact usage.input_tokens reported by each response).
+    /// Rough count of the tokens a text costs the moderation model (Jev), whose tokenizer is not published. The server
+    /// uses it to fit the chat thread into its token budget and to reserve rate-limit budget before each model call.
     /// </summary>
+    /// <remarks>
+    /// The full model input (message and context JSON plus the moderation questions) measured about 1.7 characters
+    /// per token; for free text, 3 is conservative. The rate limiter reserves this estimate of the JSON plus a fixed
+    /// question allowance (<c>QuestionTokenEstimate</c>) and does not correct it from the exact
+    /// <c>usage.input_tokens</c>.
+    /// </remarks>
     public static class TokenEstimator
     {
         public const int CharsPerToken = 3;
 
+        /// <summary>
+        /// Returns the length of <paramref name="text"/> in UTF-16 code units divided by <see cref="CharsPerToken"/>,
+        /// rounded up. Null or empty returns 0.
+        /// </summary>
         public static int Estimate(string? text)
         {
             if (string.IsNullOrEmpty(text))

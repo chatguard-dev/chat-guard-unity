@@ -2,14 +2,17 @@
 namespace ChatGuard.Core.Scoring
 {
     /// <summary>
-    /// Computes severity on the 0..3 scale of the model's four policy levels.
-    /// Verdict term: V = min(3, 3·Σ(wᵢ·pᵢ) / max(wᵢ)). Normalizing by the largest weight means the most
-    /// serious category alone (p = 1) reaches the top of the scale, lighter categories reach a fraction
-    /// of it, and several categories together add up (clamped).
-    /// With a model Score: severity = w·score + (1 − w)·V. Without one (local filter): severity = V.
-    /// A project block-list hit is reported as <see cref="MaxSeverity"/> by the caller.
-    /// Everything here is arithmetic the model must never be asked to do.
+    /// Computes a message's severity from 0 (fine) to 3 (severe), the scale of the model's policy levels. Code does
+    /// this math, never the model.
     /// </summary>
+    /// <remarks>
+    /// Verdict part: V = min(3, 3·Σ(wᵢ·pᵢ) / max(wᵢ)), with category weights wᵢ from <see cref="SeverityWeights"/>.
+    /// Dividing by the largest weight lets the most serious category alone (p = 1) reach 3. Lighter ones reach a
+    /// fraction, and several add up to at most 3.
+    /// With the model's Score (<see cref="ModelScore"/>): severity = w·score + (1 − w)·V, where w is
+    /// <see cref="SeverityWeights.ScoreWeight"/> clamped to 0..1. Without one (local filter): severity = V.
+    /// The caller, not this class, gives a project block-rule hit <see cref="MaxSeverity"/>.
+    /// </remarks>
     public static class SeverityCalculator
     {
         public const double MaxSeverity = ModelScore.MaxLevel;

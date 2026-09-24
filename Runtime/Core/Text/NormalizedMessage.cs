@@ -4,12 +4,11 @@ using System.Threading;
 namespace ChatGuard.Core.Text
 {
     /// <summary>
-    /// A message after normalization, with its tokens computed once. The hash is computed on first read of
-    /// <see cref="Hash"/>: the Unity client never reads it, so it does not pay for SHA-256 on every message.
+    /// A chat message with its normalized text and word-list tokens, computed once by <see cref="Create"/>.
     /// </summary>
     public sealed class NormalizedMessage
     {
-        // Filled on first read of Hash (Volatile.Read/Interlocked.CompareExchange, see Hash).
+        // Null until Hash is first read: the Unity client never reads it, so it never pays for SHA-256.
         private string? _hash;
 
         private NormalizedMessage(string original, string normalized, string[] tokens)
@@ -19,15 +18,22 @@ namespace ChatGuard.Core.Text
             Tokens = tokens;
         }
 
+        /// <summary>The message as passed to <see cref="Create"/>; empty when it was null.</summary>
         public string Original { get; }
 
+        /// <summary>The <see cref="TextNormalizer.Normalize"/> output, which regex project rules match.</summary>
         public string Normalized { get; }
 
+        /// <summary>
+        /// The <see cref="TextNormalizer.Tokenize"/> output: letters and digits only. Word lists and non-regex project
+        /// rules match these.
+        /// </summary>
         public string[] Tokens { get; }
 
         /// <summary>
-        /// Lowercase hex SHA-256 of <see cref="Normalized"/>, computed on first read. Concurrent first reads may
-        /// each compute it; every caller gets the first published value, fully built on ARM64 (IL2CPP or Mono) too.
+        /// SHA-256 of <see cref="Normalized"/> as 64 lowercase hex characters, computed on first read. Safe to read
+        /// from any thread. The server's verdict cache and log use it in place of the text, which is stored only when
+        /// the project turns on evidence logging.
         /// </summary>
         public string Hash
         {
@@ -44,6 +50,7 @@ namespace ChatGuard.Core.Text
             }
         }
 
+        /// <summary>Normalizes and tokenizes <paramref name="original"/>; null counts as an empty message.</summary>
         public static NormalizedMessage Create(string? original)
         {
             string text = original ?? string.Empty;

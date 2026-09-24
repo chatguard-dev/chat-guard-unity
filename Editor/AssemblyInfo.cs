@@ -1,4 +1,4 @@
 using System.Runtime.CompilerServices;
 
-// EditMode tests check ChatGuardBuildCheck.Refusal without running a build.
+// EditMode tests call ChatGuardBuildCheck's internals without running a build.
 [assembly: InternalsVisibleTo("ChatGuard.Tests.EditMode")]

@@ -1,13 +1,21 @@
 #nullable enable
 using System;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using UnityEditor;
 using UnityEngine;
 
 namespace ChatGuard.Editor
 {
-    /// <summary>Window → Chat Guard → Tester: paste a message and see the verdicts (uses the config's key, ideally a cg_test_ key).</summary>
+    /// <summary>
+    /// Editor window (Window → Chat Guard → Tester) that moderates one message with a <see cref="ChatGuardConfig"/>
+    /// you pick, without entering Play mode. It shows the action, severity, per-category probabilities, and whether
+    /// the server or a local fallback answered.
+    /// </summary>
+    /// <remarks>
+    /// Use a <c>cg_test_</c> key: its calls are free but have a daily limit (see
+    /// <see cref="ChatGuardSettings.ApiKey"/>). With no key, nothing is sent and the config's
+    /// <see cref="ChatGuardConfig.offlineBehavior"/> answers (by default, the local filter).
+    /// </remarks>
     public sealed class ChatGuardTesterWindow : EditorWindow
     {
         private ChatGuardConfig? _config;
@@ -71,7 +79,7 @@ namespace ChatGuard.Editor
             }
             catch (ArgumentException ex)
             {
-                // Invalid asset values (base URL, timeout): show the reason instead of getting stuck on "Moderating…".
+                // Invalid base URL or timeout in the config: show why instead of throwing out of OnGUI.
                 _status = ex.Message;
                 _result = null;
                 return;

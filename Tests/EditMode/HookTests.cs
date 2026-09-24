@@ -1,14 +1,14 @@
 #nullable enable
 using System.Text.RegularExpressions;
-using ChatGuard.Unity;
 using NUnit.Framework;
 using UnityEngine;
 
 namespace ChatGuard.Tests
 {
     /// <summary>
-    /// Which author id ChatGuardUnityHook.Moderate(message) sends: PlayerId when set, otherwise the per-installation id
-    /// kept in PlayerPrefs, and none in Dedicated Server builds. The editor's PlayerPrefs value is saved and put back.
+    /// Which author id <c>ChatGuardUnityHook.Moderate(message)</c> sends: <c>PlayerId</c> when set, otherwise the
+    /// per-installation id kept in PlayerPrefs, or none in a Dedicated Server build. Each test starts with no stored id
+    /// and an empty cache, then restores the editor's id.
     /// </summary>
     public class HookTests
     {
@@ -73,7 +73,7 @@ namespace ChatGuard.Tests
             Assert.That(PlayerPrefs.GetString(ChatGuardUnityHook.InstallIdKey), Is.EqualTo(id), "kept in PlayerPrefs");
             Assert.That(hook.DefaultAuthorId(dedicatedServer: false), Is.SameAs(id), "read once, then cached");
 
-            // A new session (the cache forgotten) and another Hook read the same id back.
+            // A new session (cache reset) and a second Hook read the same id back.
             ChatGuardUnityHook.ResetInstallIdCache();
             ChatGuardUnityHook other = NewHook();
             Assert.That(other.DefaultAuthorId(dedicatedServer: false), Is.EqualTo(id));

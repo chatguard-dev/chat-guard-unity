@@ -4,8 +4,8 @@ using System;
 namespace ChatGuard.Core
 {
     /// <summary>
-    /// One probability per <see cref="VerdictCategory"/>, each clamped to [0, 1].
-    /// Jev fills these with calibrated Noul probabilities; the local filter only ever writes 0 or 1.
+    /// One probability per <see cref="VerdictCategory"/>, from 0 to 1; set values are clamped and NaN becomes 0.
+    /// Model probabilities are calibrated: 0.9 is right nine times in ten. The local filter gives only 0 or 1.
     /// </summary>
     public sealed class VerdictSet
     {

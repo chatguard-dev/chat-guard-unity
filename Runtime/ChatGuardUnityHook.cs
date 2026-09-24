@@ -5,7 +5,7 @@ using System.Threading;
 using UnityEngine;
 using UnityEngine.Events;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     [Serializable]
     public sealed class ModerationResultEvent : UnityEvent<ModerationResult>
@@ -13,15 +13,28 @@ namespace ChatGuard.Unity
     }
 
     /// <summary>
-    /// No-code wiring: drop it on a GameObject, assign a config, call <see cref="Moderate(string)"/> from a UnityEvent
-    /// or <see cref="Moderate(string, string)"/> from your chat code, and listen to <see cref="onModerated"/>
-    /// (delivered on the main thread). <see cref="Moderate(string)"/> sends <see cref="PlayerId"/> as the author id; set
-    /// it with <see cref="SetPlayerId"/> (a UnityEvent can call that too) once the player is known. Until then it sends
-    /// a random id created on first use and kept in PlayerPrefs under <see cref="InstallIdKey"/>, one per installation
-    /// of the game. That id names no device or account, but it is a persistent pseudonymous identifier, so mention it in
-    /// the game's privacy notice. Dedicated Server builds never create it: there, a message without a player id is
-    /// sent without an author id. Call the component on the main thread, like any MonoBehaviour.
+    /// A component that moderates chat with no code required: add it to a GameObject and assign a <see cref="config"/>.
+    /// Then call <see cref="Moderate(string)"/> from a UnityEvent (or <see cref="Moderate(string, string)"/> from code)
+    /// and react through <see cref="onModerated"/>, <see cref="onDeliver"/> and <see cref="onSuppress"/>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use the component on the main thread only. Its events run there too, possibly before <c>Moderate</c> returns
+    /// (see <see cref="ModerationOperation"/>). <see cref="onDeliver"/> and <see cref="onSuppress"/> receive the
+    /// original message text. Destroying the component cancels its in-flight calls, and their events never run.
+    /// </para>
+    /// <para>
+    /// With <see cref="configureStaticApi"/> on (the default), <c>Awake</c> also passes <see cref="config"/>, when set,
+    /// to <see cref="ChatGuardSdk.Configure(ChatGuardConfig)"/>. That replaces the client behind static
+    /// <see cref="ChatGuardSdk"/> calls.
+    /// </para>
+    /// <para>
+    /// Until <see cref="PlayerId"/> is set, <see cref="Moderate(string)"/> sends a random per-installation id as the
+    /// author id, created on first use and kept in PlayerPrefs under <see cref="InstallIdKey"/>. It names no device or
+    /// account, but it is a persistent pseudonymous identifier, so mention it in your game's privacy notice. Dedicated
+    /// Server builds never create it and send no author id instead.
+    /// </para>
+    /// </remarks>
     [AddComponentMenu("Chat Guard/Chat Guard Hook")]
     public sealed class ChatGuardUnityHook : MonoBehaviour
     {
@@ -40,29 +53,37 @@ namespace ChatGuard.Unity
         public UnityEvent<string> onSuppress = new UnityEvent<string>();
 
         /// <summary>
-        /// PlayerPrefs key of the per-installation id that <see cref="Moderate(string)"/> sends when no <see cref="PlayerId"/>
-        /// is set. To answer a player's request to export or erase their data, read it on their device with
-        /// <c>PlayerPrefs.GetString(InstallIdKey)</c> (empty when none was created) and show it where they can copy it.
+        /// PlayerPrefs key of the per-installation id sent while <see cref="PlayerId"/> is empty. For a player's data
+        /// export or erasure request, read it on their device with <c>PlayerPrefs.GetString(InstallIdKey)</c> and show
+        /// it where they can copy it. Empty means none was created on that device.
         /// </summary>
         public const string InstallIdKey = "chatguard.install_id";
 
-        // The per-installation id, read (or created) once on the main thread and then reused by every Hook.
+        // The per-installation id, loaded (or created) once on the main thread, then shared by every Hook.
         private static string? s_installId;
 
-        // The main thread's managed id, recorded at startup and in Awake; -1 until then (edit mode), which is treated as
-        // the main thread because Unity runs editor code there.
+        // The main thread's managed id, set at startup and in Awake. While it is -1 (Edit mode), any thread counts as
+        // the main thread, since Unity runs editor code there.
         private static int s_mainThreadId = -1;
 
         private ChatGuardClient? _client;
         private readonly List<ModerationOperation> _inFlight = new List<ModerationOperation>();
 
         /// <summary>
-        /// Your id for the player who sends the messages given to <see cref="Moderate(string)"/>: one that stays the same
-        /// between sessions, never a name or an email. Null or empty means not set, and then the per-installation id is
-        /// sent instead (except in Dedicated Server builds). <see cref="Moderate(string, string)"/> ignores it.
+        /// Your id for the local player, sent as the author id by <see cref="Moderate(string)"/> only. Use a stable id,
+        /// never a real name or email (see <see cref="ModerationRequest.authorId"/>). While it is null or empty, the
+        /// per-installation id is sent instead, or none in Dedicated Server builds.
         /// </summary>
         public string? PlayerId { get; set; }
 
+        /// <summary>
+        /// The client this component sends through, created from <see cref="config"/> on first use. Later changes to
+        /// <see cref="config"/> do not affect it.
+        /// </summary>
+        /// <exception cref="InvalidOperationException"><see cref="config"/> is not set.</exception>
+        /// <exception cref="ArgumentException">
+        /// The config is invalid (see <see cref="ChatGuardSettings.Validate"/>).
+        /// </exception>
         public ChatGuardClient Client
         {
             get
@@ -90,22 +111,26 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>Sets <see cref="PlayerId"/>; the form a UnityEvent can call, for example when the player signs in.</summary>
+        /// <summary>Sets <see cref="PlayerId"/> from a UnityEvent, such as your sign-in event.</summary>
         public void SetPlayerId(string playerId)
         {
             PlayerId = playerId;
         }
 
         /// <summary>
-        /// Moderates one message from the local player, the form a UnityEvent (an input field's submit event, say) can
-        /// call. The author id is <see cref="PlayerId"/> when set, otherwise the per-installation id (see the class
-        /// summary); Dedicated Server builds send none.
+        /// Moderates one message from the local player, with <see cref="PlayerId"/> (or its fallback) as the author id.
+        /// Wire it to a UnityEvent, such as an input field's submit event. Errors, such as a missing config, are
+        /// logged, not thrown.
         /// </summary>
         public void Moderate(string message)
         {
             Moderate(message, DefaultAuthorId(ChatGuardClient.IsDedicatedServerBuild));
         }
 
+        /// <summary>
+        /// Moderates one message with the author id you pass, such as another player's. Ignores <see cref="PlayerId"/>;
+        /// null or empty sends no author id. Errors are logged, not thrown.
+        /// </summary>
         public void Moderate(string message, string? authorId)
         {
             try
@@ -125,8 +150,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The author id <see cref="Moderate(string)"/> sends: <see cref="PlayerId"/> when set; otherwise null in a Dedicated
-        /// Server build, which never touches PlayerPrefs, and the per-installation id everywhere else.
+        /// The author id <see cref="Moderate(string)"/> sends: <see cref="PlayerId"/> when set, else the
+        /// per-installation id, or null with <paramref name="dedicatedServer"/> so Dedicated Server builds never touch
+        /// PlayerPrefs.
         /// </summary>
         internal string? DefaultAuthorId(bool dedicatedServer)
         {
@@ -139,10 +165,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The per-installation id: read from PlayerPrefs (<see cref="InstallIdKey"/>) the first time it is needed, or
-        /// created there as a random GUID ("N" format) when missing, and cached for the rest of the session. PlayerPrefs
-        /// is only touched on the main thread; on another thread, before the id was first read, this is null and the
-        /// message goes without an author id.
+        /// The per-installation id, loaded from PlayerPrefs once per session, or created there as a random GUID ("N"
+        /// format). PlayerPrefs is main-thread only, so until the main thread has loaded the id, other threads get null
+        /// and send no author id.
         /// </summary>
         internal static string? InstallId
         {
@@ -171,7 +196,7 @@ namespace ChatGuard.Unity
             return id;
         }
 
-        /// <summary>True for 32 lowercase hex digits, the shape this component writes; anything else is replaced.</summary>
+        /// <summary>True for 32 lowercase hex digits, the shape written here; anything else is replaced.</summary>
         private static bool IsInstallId(string value)
         {
             if (value.Length != 32)
@@ -190,13 +215,16 @@ namespace ChatGuard.Unity
             return true;
         }
 
-        /// <summary>Forgets the cached id (tests, and play mode without a domain reload); the next read goes to PlayerPrefs again.</summary>
+        /// <summary>Forgets the cached id so the next read goes to PlayerPrefs again. For tests.</summary>
         internal static void ResetInstallIdCache()
         {
             s_installId = null;
         }
 
-        /// <summary>Runs on the main thread before the first scene loads, also when play mode starts without a domain reload.</summary>
+        /// <summary>
+        /// Records the main thread and drops the cached id before the first scene loads. Also runs when Play mode
+        /// starts without a domain reload, where statics keep the last session's values.
+        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetOnLoad()
         {

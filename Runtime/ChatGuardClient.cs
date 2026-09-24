@@ -13,34 +13,47 @@ using ChatGuard.Core.Text;
 using Unity.Collections;
 using UnityEngine.Networking;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     /// <summary>
-    /// Plain C# client for POST /v1/moderate built on UnityWebRequest. Not a MonoBehaviour: create one per
-    /// server/session and reuse it. Configure it from code with a <see cref="ChatGuardSettings"/> (no asset needed)
-    /// or from a <see cref="ChatGuardConfig"/> asset. Falls back to the shared local filter according to
-    /// <see cref="ChatGuardSettings.OfflineBehavior"/>. No Tasks or threads: <c>Moderate</c> returns a
-    /// <see cref="ModerationOperation"/> that completes on the main thread, on every platform including WebGL, and
-    /// optionally takes a <see cref="CancellationToken"/> that ends it early.
+    /// Client for the Chat Guard API (POST /v1/moderate), built on UnityWebRequest. It is a plain C# class, not a
+    /// MonoBehaviour: create one and reuse it for every message. <see cref="ChatGuardSdk"/> wraps one shared instance.
     /// </summary>
+    /// <remarks>
+    /// Configure it from code with <see cref="ChatGuardSettings"/> or with a <see cref="ChatGuardConfig"/> asset.
+    /// Without an API key, or when the server gives no usable answer, the client answers on its own as
+    /// <see cref="ChatGuardSettings.OfflineBehavior"/> says. By default that is the local filter: built-in word lists
+    /// checked on the device. Such results are degraded (<see cref="ModerationResult.Degraded"/>) and come from
+    /// <see cref="ResultSource.Local"/>. <c>Moderate</c> returns a <see cref="ModerationOperation"/> that completes on
+    /// the main thread; overloads take a <see cref="CancellationToken"/>. No Tasks or threads are used, so it works on
+    /// every platform, WebGL included.
+    /// </remarks>
     public sealed class ChatGuardClient
     {
-        /// <summary>Thread entries sent with a message: the last 5, which is what the model reads (the API accepts 50).</summary>
+        /// <summary>
+        /// Largest number of thread entries (earlier chat lines) sent with one message. The model reads at most the
+        /// last 5, fewer when they are long; the API accepts up to 50.
+        /// </summary>
         private const int MaxThreadEntries = 5;
 
-        /// <summary>Longest thread text the API accepts, in UTF-16 code units; a longer one is cut to this before sending.</summary>
+        /// <summary>Longest thread text the API accepts, in UTF-16 code units; longer text is cut before sending.</summary>
         private const int MaxThreadTextChars = 2000;
 
-        /// <summary>Longest thread author the API accepts; a longer one is sent as an empty label.</summary>
+        /// <summary>Longest thread author the API accepts, in UTF-16 code units; a longer one is sent as empty.</summary>
         private const int MaxThreadAuthorChars = 128;
 
-        /// <summary>Largest account_age_days and prior_warnings the API accepts; a larger count is sent as this.</summary>
+        /// <summary>
+        /// Largest <c>account_age_days</c> and <c>prior_warnings</c> the API accepts; larger counts are sent as this.
+        /// </summary>
         private const int MaxAuthorCount = 100000;
 
-        /// <summary>Longest excerpt of an HTTP error body that is not a problem description which <see cref="ModerationResult.Error"/> quotes.</summary>
+        /// <summary>
+        /// Longest excerpt of an HTTP error body quoted in <see cref="ModerationResult.Error"/> when the body is not a
+        /// problem description.
+        /// </summary>
         private const int MaxErrorBodyChars = 200;
 
-        /// <summary>Longest <see cref="ModerationResult.Error"/> text made from a problem description, after "HTTP nnn: ".</summary>
+        /// <summary>Longest error text made from a problem description, not counting the "HTTP nnn: " prefix.</summary>
         private const int MaxProblemChars = 1000;
 
         private static LocalFilter? s_filter;
@@ -57,13 +70,18 @@ namespace ChatGuard.Unity
         private readonly SeverityWeights _weights = SeverityWeights.Default();
 
         /// <summary>
-        /// Primary constructor: builds a client from plain settings, no Resources asset involved. The settings are
-        /// validated (<see cref="ChatGuardSettings.Validate"/>) and copied, so changing the object afterwards has no
-        /// effect on this client. An empty key gives a local-filter-only client; a blank base URL means
-        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/>.
+        /// Creates a client from plain settings. They are validated and copied, so later changes to
+        /// <paramref name="settings"/> do not affect this client.
         /// </summary>
+        /// <remarks>
+        /// With <see cref="OfflineBehavior.LocalFilter"/>, the word lists for the default language and English are
+        /// parsed here, not on the first local answer. In a player build, a <c>cg_live_</c> server key logs one warning
+        /// per run, except in Dedicated Server builds.
+        /// </remarks>
         /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
-        /// <exception cref="ArgumentException">The timeout is not a positive finite number of seconds (at most <see cref="ChatGuardSettings.MaxTimeoutSeconds"/>) or the base URL is not an absolute http/https URL.</exception>
+        /// <exception cref="ArgumentException">
+        /// A setting is invalid; see <see cref="ChatGuardSettings.Validate"/>.
+        /// </exception>
         public ChatGuardClient(ChatGuardSettings settings)
         {
             if (settings == null)
@@ -84,7 +102,7 @@ namespace ChatGuard.Unity
             _timeoutSeconds = Math.Max(1, (int)Math.Ceiling(_settings.TimeoutSeconds));
             if (HasServer && (_baseUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || _baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
             {
-                // Parsed once per client; left null when System.Uri rejects the URL so Moderate takes the string path.
+                // Parsed once per client. Left null when System.Uri rejects the URL; Moderate then uses the string URL.
                 Uri.TryCreate(_moderateUrl, UriKind.Absolute, out _moderateUri);
             }
 
@@ -92,25 +110,25 @@ namespace ChatGuard.Unity
             WarnIfServerKeyInBuild(_settings.ApiKey);
             if (_settings.OfflineBehavior != OfflineBehavior.AllowAll && _settings.OfflineBehavior != OfflineBehavior.BlockAll)
             {
-                // Parse the word lists this client falls back to by default (same test as Fallback's default branch)
-                // here, at construction, so that cost does not land on the first offline or degraded message.
-                // Evaluating an empty message reuses the filter's own language resolution (the default language or the
-                // fallback, plus English). A request that names another language parses that list on its first fallback.
+                // The local filter answers for this client (same test as Fallback's default branch). Evaluating an empty
+                // message here parses the lists a local answer would use: the default language (English when it has no
+                // list) plus English.
                 Filter.Evaluate(NormalizedMessage.Create(string.Empty), _settings.DefaultLanguage);
             }
         }
 
-        /// <summary>Builds a client from a <see cref="ChatGuardConfig"/> asset (see <see cref="ChatGuardConfig.ToSettings"/>).</summary>
+        /// <summary>
+        /// Creates a client from a <see cref="ChatGuardConfig"/> asset (<see cref="ChatGuardConfig.ToSettings"/>), with
+        /// the same validation as <see cref="ChatGuardClient(ChatGuardSettings)"/>.
+        /// </summary>
         public ChatGuardClient(ChatGuardConfig config)
             : this((config ?? throw new ArgumentNullException(nameof(config))).ToSettings())
         {
         }
 
         /// <summary>
-        /// Positional shorthand for <see cref="ChatGuardClient(ChatGuardSettings)"/>: <c>new ChatGuardClient(apiKey)</c>
-        /// is enough. The defaults are the same as <see cref="ChatGuardSettings"/>, including
-        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/> for a null or empty <paramref name="baseUrl"/> and
-        /// <paramref name="ageRating"/> "16+" (pass null or empty to send no <c>channel.age_rating</c>).
+        /// Shorthand for <see cref="ChatGuardClient(ChatGuardSettings)"/>: <c>new ChatGuardClient(apiKey)</c> is enough.
+        /// Each parameter sets the matching <see cref="ChatGuardSettings"/> property and has the same default.
         /// </summary>
         public ChatGuardClient(string apiKey, string? baseUrl = null, float timeoutSeconds = 2f, OfflineBehavior offline = OfflineBehavior.LocalFilter, bool localWhenDegraded = true, Thresholds? thresholds = null, string language = "en", string channelType = "global", string? ageRating = "16+")
             : this(new ChatGuardSettings
@@ -129,26 +147,27 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// A copy of the settings this client runs with (the base URL is the one requests go to: a blank one reads as
-        /// <see cref="ChatGuardSettings.DefaultBaseUrl"/> and a trailing slash is trimmed;
-        /// <see cref="ChatGuardSettings.Thresholds"/> stays null when the built-in defaults are used), for diagnostics
-        /// such as logging the base URL and offline behaviour at startup. It contains the API key, so do not log it
-        /// verbatim. Changing the copy does not affect the client.
+        /// A copy of the settings this client runs with, for diagnostics such as logging the base URL at startup. It
+        /// includes the API key, so keep the key out of your logs. Changing the copy does not affect the client.
         /// </summary>
+        /// <remarks>
+        /// <see cref="ChatGuardSettings.BaseUrl"/> is the URL requests go to, with a blank one replaced by the default
+        /// and trailing slashes trimmed. <see cref="ChatGuardSettings.Thresholds"/> stays null when the defaults apply.
+        /// </remarks>
         public ChatGuardSettings Settings => _settings.Clone();
 
         /// <summary>
-        /// The shared dictionary filter, created on first use so AllowAll/BlockAll clients never create it or the built-in
-        /// catalog. Creating it parses nothing: the catalog parses each language's list on that language's first lookup
-        /// (see the constructor's prewarm). A plain static field with no initializer keeps ChatGuardClient free of a type
-        /// initializer (Mono runs beforefieldinit initializers while JIT-compiling methods that touch them). The field is
-        /// read with Volatile.Read and set with Interlocked.CompareExchange, because a plain store does not guarantee that
-        /// another thread sees a fully built filter on ARM64 (IL2CPP or Mono). A race can build a second filter, which is
-        /// discarded; every caller gets the published one.
+        /// The local filter, shared by all clients and created on first use, so AllowAll and BlockAll clients never load
+        /// its word-list catalog. Each language's list is parsed on its first lookup.
         /// </summary>
+        /// <remarks>
+        /// <c>s_filter</c> has no initializer, so ChatGuardClient has no type initializer (Mono runs beforefieldinit
+        /// initializers while JIT-compiling methods that touch them). Volatile.Read and CompareExchange make other
+        /// threads see a fully built filter on ARM64; a filter built by a losing racer is discarded.
+        /// </remarks>
         private static LocalFilter Filter => Volatile.Read(ref s_filter) ?? CreateFilter();
 
-        /// <summary>Builds the shared filter and publishes it unless another thread already has; returns the published one.</summary>
+        /// <summary>Builds and publishes the filter unless another thread got there first; returns the published one.</summary>
         private static LocalFilter CreateFilter()
         {
             var filter = new LocalFilter();
@@ -156,15 +175,15 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Header with the game's bundle id (Application.identifier, e.g. com.studio.game). It names the game, not the
-        /// player, and lets Chat Guard notice one game spread across several Free organizations (decision 2026-09-23).
+        /// HTTP header that carries the game's bundle id (<c>Application.identifier</c>, such as <c>com.studio.game</c>).
+        /// It names the game, not the player. Chat Guard uses it to spot one game spread across several Free-plan
+        /// organizations.
         /// </summary>
         public const string GameHeaderName = "X-ChatGuard-App";
 
         /// <summary>
-        /// The value sent in <see cref="GameHeaderName"/>: the bundle id when it is 1 to 200 ASCII letters, digits, dots,
-        /// dashes or underscores (what the API accepts), otherwise empty, and then no header is sent. Computed once per
-        /// client, so every request reuses the same string.
+        /// The value sent in <see cref="GameHeaderName"/>: <paramref name="bundleId"/> when it is 1 to 200 ASCII letters,
+        /// digits, dots, dashes or underscores (the form the server reads), otherwise empty, which sends no header.
         /// </summary>
         internal static string GameIdentity(string? bundleId)
         {
@@ -184,7 +203,9 @@ namespace ChatGuard.Unity
             return bundleId;
         }
 
-        /// <summary>Application.identifier, or empty when it cannot be read (Unity allows it on the main thread only).</summary>
+        /// <summary>
+        /// <c>Application.identifier</c>, or empty when it cannot be read (Unity allows it on the main thread only).
+        /// </summary>
         private static string ReadBundleId()
         {
             try
@@ -198,8 +219,8 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// A cg_live_ key in a player build is a leaked server key; publishable keys are cg_pub_. Dedicated Server builds
-        /// may hold one (the build check allows them too), so they don't warn.
+        /// Logs one warning per run when a player build uses a <c>cg_live_</c> server key, which players can extract.
+        /// Silent in the Editor and in Dedicated Server builds, which may hold one (the build check allows it there too).
         /// </summary>
         private static void WarnIfServerKeyInBuild(string apiKey)
         {
@@ -213,8 +234,8 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// True in Dedicated Server builds (the UNITY_SERVER define). A property, not a constant, so the checks that read it
-        /// compile without unreachable-code warnings. <see cref="ChatGuardUnityHook"/> reads it too.
+        /// True in Dedicated Server builds (the <c>UNITY_SERVER</c> define). A property rather than a constant, so code
+        /// that reads it compiles without unreachable-code warnings.
         /// </summary>
         internal static bool IsDedicatedServerBuild
         {
@@ -228,23 +249,30 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>True when an API key is set; without one every call is answered by the offline fallback.</summary>
+        /// <summary>
+        /// True when an API key is set. Without one, nothing is sent and <see cref="ChatGuardSettings.OfflineBehavior"/>
+        /// answers every call.
+        /// </summary>
         public bool HasServer => _settings.ApiKey.Length > 0;
 
         /// <summary>
-        /// Starts one moderation call. Yield the returned operation in a coroutine, poll
-        /// <see cref="ModerationOperation.IsDone"/>, <c>await</c> it, or pass <paramref name="onCompleted"/>. Without a
-        /// configured server (or when the request cannot be created) the operation completes synchronously with the
-        /// offline fallback, so <paramref name="onCompleted"/> may run before this method returns. Always completes on the
-        /// main thread.
+        /// Starts moderating one message. Yield the returned operation in a coroutine, poll
+        /// <see cref="ModerationOperation.IsDone"/>, <c>await</c> it, or pass <paramref name="onCompleted"/>. Call it on
+        /// the main thread; the operation completes there.
         /// </summary>
+        /// <remarks>
+        /// Network errors, timeouts and bad server answers do not throw: the operation completes with the
+        /// <see cref="ChatGuardSettings.OfflineBehavior"/> answer, and <see cref="ModerationResult.Error"/> says why.
+        /// Without an API key, or when the web request cannot be created, it completes before this method returns, so
+        /// <paramref name="onCompleted"/> has already run.
+        /// </remarks>
         public ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted = null)
         {
             return Moderate(request, onCompleted, CancellationToken.None);
         }
 
         /// <summary>
-        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> without a callback, the
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> without a callback; the
         /// usual form with <c>await</c>: <c>ModerationResult result = await client.Moderate(request, token);</c>.
         /// </summary>
         public ModerationOperation Moderate(ModerationRequest request, CancellationToken cancellationToken)
@@ -253,17 +281,18 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Starts one moderation call that <paramref name="cancellationToken"/> can end early. Cancelling the token does
-        /// what <see cref="ModerationOperation.Cancel"/> does: the request is aborted, <paramref name="onCompleted"/> and
-        /// <see cref="ModerationOperation.Completed"/> are not invoked, and <c>await</c> throws
-        /// <see cref="OperationCanceledException"/> carrying the token. A token that is already cancelled gives back a
-        /// cancelled operation without sending anything or computing a fallback. The SDK stops listening to the token
-        /// when the operation finishes, so one long-lived token (a component's <c>destroyCancellationToken</c>) can serve
-        /// every message. Cancel it on the main thread where you can; a token cancelled on another thread takes effect on
-        /// the main thread, when Unity next runs posted work. For timeouts use
-        /// <see cref="ChatGuardSettings.TimeoutSeconds"/>: <c>CancelAfter</c> relies on a timer thread and never fires
-        /// on WebGL. Otherwise the same as <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>.
+        /// Starts moderating one message; <paramref name="cancellationToken"/> can end it early. Otherwise the same as
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>.
         /// </summary>
+        /// <remarks>
+        /// Canceling the token acts like <see cref="ModerationOperation.Cancel"/>: the request is aborted, no callback
+        /// runs, and <c>await</c> throws <see cref="OperationCanceledException"/> carrying the token. An already
+        /// canceled token returns a canceled operation and sends nothing. The client stops listening to the token
+        /// when the operation finishes, so one long-lived token, such as <c>destroyCancellationToken</c>, can serve
+        /// every message. A cancel from another thread takes effect on the main thread when Unity next runs posted
+        /// work. For timeouts use <see cref="ChatGuardSettings.TimeoutSeconds"/>: <c>CancelAfter</c> needs a timer
+        /// thread and never fires on WebGL.
+        /// </remarks>
         public ModerationOperation Moderate(ModerationRequest request, Action<ModerationResult>? onCompleted, CancellationToken cancellationToken)
         {
             if (request == null)
@@ -293,7 +322,7 @@ namespace ChatGuard.Unity
             operation.CancelOn(cancellationToken);
             if (operation.IsDone)
             {
-                return operation; // the token was cancelled on another thread just before it was registered
+                return operation; // the token was canceled on another thread just before it was registered
             }
 
             ModerationWebRequest? uwr = null;
@@ -301,10 +330,8 @@ namespace ChatGuard.Unity
             {
                 long startTimestamp = Stopwatch.GetTimestamp();
                 Utf8RequestJsonSink body = WriteRequestUtf8(request);
-                // The Uri overload skips UnityWebRequest's per-call URL re-parsing (two Uri objects and a regex) and
-                // yields the same url. _moderateUri is null for base URLs without an http(s) scheme and for URLs
-                // System.Uri rejects; those use the string overload, so they behave and fail exactly as
-                // UnityWebRequest(string) does.
+                // The Uri overload skips UnityWebRequest's per-call URL re-parsing (two Uri objects and a regex). Without
+                // a parsed Uri, the string overload keeps UnityWebRequest(string)'s behavior and errors.
                 uwr = _moderateUri != null ? new ModerationWebRequest(_moderateUri, this, operation, startTimestamp) : new ModerationWebRequest(_moderateUrl, this, operation, startTimestamp);
                 uwr.uploadHandler = CreateUploadHandler(body.Buffer, body.Length);
                 body.Release(); // the bytes are in native memory now; the buffer serves this thread's next request
@@ -319,7 +346,7 @@ namespace ChatGuard.Unity
                 }
                 operation.Attach(uwr);
 
-                // `completed` invokes immediately when the web request has already finished, so there is no race here.
+                // An AsyncOperation.completed handler added after the request finished runs at once, so there is no race.
                 uwr.SendWebRequest().completed += ModerationWebRequest.CompletedHandler;
             }
             catch (Exception ex)
@@ -332,8 +359,10 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Coroutine form for <c>StartCoroutine</c>: starts <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>, waits for it, then invokes
-        /// <paramref name="onCompleted"/> with the result (not invoked when the operation was cancelled).
+        /// Coroutine form for <c>StartCoroutine</c>: starts
+        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult})"/>, waits for the result, then passes it to
+        /// <paramref name="onCompleted"/>. Stopping the coroutine does not abort the request, only drops its result; to
+        /// cancel, use <see cref="Moderate(ModerationRequest, CancellationToken)"/>.
         /// </summary>
         public IEnumerator ModerateCoroutine(ModerationRequest request, Action<ModerationResult> onCompleted)
         {
@@ -351,10 +380,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Copies the request body into a new native array and hands it to an <see cref="UploadHandlerRaw"/> that owns it
-        /// (<c>transferOwnership</c>), so it is freed when the request is disposed, which is what
-        /// <c>UploadHandlerRaw(byte[])</c> does internally; the managed copy that overload needs is skipped. The array is
-        /// disposed here if the copy fails; from the handler's constructor on, the handler owns it.
+        /// Copies the first <paramref name="length"/> bytes of the body buffer into a native array that the returned
+        /// handler owns, so disposing the request frees it. <c>UploadHandlerRaw(byte[])</c> would first need an
+        /// exact-length managed copy. If the copy fails, the array is disposed here.
         /// </summary>
         private static UploadHandlerRaw CreateUploadHandler(byte[] buffer, int length)
         {
@@ -372,7 +400,10 @@ namespace ChatGuard.Unity
             return new UploadHandlerRaw(data, true);
         }
 
-        /// <summary>Runs on the main thread when the UnityWebRequest finishes, including after an abort from Cancel().</summary>
+        /// <summary>
+        /// Runs on the main thread when the web request finishes, also after Cancel() aborted it. Completes the operation
+        /// unless it is already done, and always disposes the request.
+        /// </summary>
         private void Finish(ModerationWebRequest uwr)
         {
             ModerationOperation operation = uwr.Operation;
@@ -380,7 +411,7 @@ namespace ChatGuard.Unity
             {
                 if (operation.IsDone)
                 {
-                    return; // cancelled (aborted) or already completed: nothing to report, only release the request
+                    return; // canceled (aborted) or already completed: nothing to report, only release the request
                 }
 
                 ModerationResult result;
@@ -401,6 +432,10 @@ namespace ChatGuard.Unity
             }
         }
 
+        /// <summary>
+        /// Turns a finished request into a result, or into the local answer with the matching
+        /// <see cref="DegradedReason"/> when the request failed.
+        /// </summary>
         private ModerationResult Interpret(UnityWebRequest uwr, ModerationRequest request, long startTimestamp)
         {
 #if UNITY_2020_2_OR_NEWER
@@ -419,9 +454,8 @@ namespace ChatGuard.Unity
                 return Fallback(request, reason, DescribeHttpError(uwr.responseCode, uwr.downloadHandler.text));
             }
 
-            // The server's usual body is read straight from the response bytes. Whatever that reader does not handle is
-            // parsed from DownloadHandler.text, so every body gets TryParseResponse's result (null for malformed or
-            // truncated JSON, reported as an unparseable response).
+            // The server's usual body is read straight from the bytes, with the same result as TryParseResponse; anything
+            // else goes through DownloadHandler.text.
             ModerationResult? parsed = TryReadPlainResponse(uwr, startTimestamp) ?? TryParseResponse(uwr.downloadHandler.text, ElapsedMilliseconds(startTimestamp));
             if (parsed == null)
             {
@@ -437,11 +471,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Reads a 200 body from <c>DownloadHandler.nativeData</c> with <see cref="ModerationResponseReader"/>, without
-        /// creating the body string. Null when the reader does not handle the body, when the Content-Type names a charset
-        /// other than UTF-8 (<c>DownloadHandler.text</c> would decode with it), and when anything throws; the caller then
-        /// takes the <c>DownloadHandler.text</c> path, which reads the same data and gives
-        /// <see cref="TryParseResponse"/>'s answer.
+        /// Reads a 200 body straight from <c>DownloadHandler.nativeData</c> with <see cref="ModerationResponseReader"/>,
+        /// without creating the body string. Null when the reader does not handle the body, when the Content-Type names a
+        /// charset other than UTF-8 (<c>DownloadHandler.text</c> would decode with it), or when anything throws.
         /// </summary>
         private static ModerationResult? TryReadPlainResponse(UnityWebRequest uwr, long startTimestamp)
         {
@@ -461,13 +493,19 @@ namespace ChatGuard.Unity
             }
         }
 
-        /// <summary>Whole milliseconds since <paramref name="startTimestamp"/>, as Stopwatch.ElapsedMilliseconds computes them.</summary>
+        /// <summary>
+        /// Whole milliseconds since <paramref name="startTimestamp"/>, as <c>Stopwatch.ElapsedMilliseconds</c> computes them.
+        /// </summary>
         private static int ElapsedMilliseconds(long startTimestamp)
         {
             return (int)((Stopwatch.GetTimestamp() - startTimestamp) * 1000 / Stopwatch.Frequency);
         }
 
-        /// <summary>Serializes the request; only set fields are written (the API rejects negative counts).</summary>
+        /// <summary>
+        /// Returns the JSON body that <c>Moderate</c> sends for <paramref name="request"/>. Unset fields take this
+        /// client's defaults or are left out, and the thread and counts are fitted to the API's limits, as the
+        /// <see cref="ModerationRequest"/> and <see cref="ThreadEntry"/> fields describe.
+        /// </summary>
         public string BuildRequestJson(ModerationRequest request)
         {
             var sink = new StringRequestJsonSink(new StringBuilder(EstimateRequestJsonLength(request)));
@@ -479,8 +517,7 @@ namespace ChatGuard.Unity
         /// The body <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> uploads:
         /// exactly the bytes of <c>Encoding.UTF8.GetBytes(BuildRequestJson(request))</c>, written into this thread's
         /// reusable buffer without creating the string. Read <see cref="Utf8RequestJsonSink.Buffer"/> up to
-        /// <see cref="Utf8RequestJsonSink.Length"/>, then call <see cref="Utf8RequestJsonSink.Release"/>. Throws what
-        /// <see cref="BuildRequestJson"/> throws for the same request.
+        /// <see cref="Utf8RequestJsonSink.Length"/>, then call <see cref="Utf8RequestJsonSink.Release"/>.
         /// </summary>
         internal Utf8RequestJsonSink WriteRequestUtf8(ModerationRequest request)
         {
@@ -491,21 +528,15 @@ namespace ChatGuard.Unity
 
         /// <summary>
         /// The one definition of the request body, written to <paramref name="sink"/>: a string for
-        /// <see cref="BuildRequestJson"/>, UTF-8 bytes for
-        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/>, so the two cannot
-        /// drift apart.
+        /// <see cref="BuildRequestJson"/> or UTF-8 bytes for <see cref="WriteRequestUtf8"/>, so the two cannot drift
+        /// apart.
         /// </summary>
         private void WriteRequestJson<TSink>(ref TSink sink, ModerationRequest request)
             where TSink : struct, IRequestJsonSink
         {
-            // Written directly rather than by building a Dictionary tree for MiniJson.Write (the serializer up to 0.2.1).
-            // The output keeps that tree's keys, order and omission rules, strings escaped by MiniJson.WriteString and
-            // counts as invariant integers written only when >= 0. Since 0.4.1 it also leaves out what the API would
-            // answer with a 400 for the whole message: thread entries that are null or have no text are skipped (the last
-            // 5 of the others are sent, and no "thread" key when none is left), a thread text over 2,000 characters is
-            // cut, a thread author that is null or over 128 characters is sent as an empty label, and counts above 100,000 are sent as
-            // 100,000. The RequestJson_*_ExactString tests in ClientJsonTests pin this, and RequestBytesTests pins the
-            // UTF-8 sink to Encoding.UTF8.GetBytes of the string.
+            // Keys come in a fixed order and unset fields are left out. The thread and counts are fitted to the API's
+            // limits so it does not refuse the whole message with a 400. The RequestJson_*_ExactString tests in
+            // ClientJsonTests pin this output; RequestBytesTests pins the UTF-8 sink to the string's bytes.
             List<ThreadEntry>? thread = request.thread;
             int threadStart = ThreadWindowStart(thread);
             string channelType = ChannelTypeFor(request);
@@ -600,9 +631,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Index of the first thread entry that is sent. The window runs to the end of the list and holds the last
-        /// <see cref="MaxThreadEntries"/> sendable entries (<see cref="IsSendable"/>); entries in it that are not sendable
-        /// are skipped. Equals the list's count (nothing is sent) when no entry is sendable, and 0 for a null list.
+        /// Index of the first thread entry sent. The sent window runs to the end of the list and holds the last
+        /// <see cref="MaxThreadEntries"/> sendable entries (<see cref="IsSendable"/>); unsendable ones inside it are
+        /// skipped. The list's count when no entry is sendable, 0 for a null list.
         /// </summary>
         private static int ThreadWindowStart(List<ThreadEntry>? thread)
         {
@@ -625,15 +656,15 @@ namespace ChatGuard.Unity
             return start;
         }
 
-        /// <summary>A thread entry is sent when it exists and has text; the API refuses the whole message otherwise.</summary>
+        /// <summary>True when the entry exists and has text; any other entry makes the API refuse the whole message.</summary>
         private static bool IsSendable(ThreadEntry? entry)
         {
             return entry != null && !string.IsNullOrEmpty(entry.text);
         }
 
         /// <summary>
-        /// The author label sent for a thread entry: its own, or an empty label when null or longer than the API accepts,
-        /// so the model reads the line as unlabeled rather than as one more player (0.4.0 sent "unknown").
+        /// The author label sent for a thread entry: its own, or empty when it is null or too long for the API. The model
+        /// reads an empty label as an unlabeled line, not as one more player.
         /// </summary>
         private static string ThreadAuthor(string? author)
         {
@@ -641,8 +672,8 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// A sendable entry's text, cut to the first 2,000 characters when longer (the model reads the first 500 either
-        /// way). A surrogate pair at the cut is left out whole.
+        /// A sendable entry's text, cut to its first 2,000 UTF-16 code units when longer; the model reads at most the
+        /// first 500 anyway. A surrogate pair split by the cut is left out whole.
         /// </summary>
         private static string ThreadText(string text)
         {
@@ -673,11 +704,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Initial builder capacity for <see cref="BuildRequestJson"/>: every string that is written (message, author id,
-        /// the thread entries that are sent, channel values, request id) plus their keys and separators. 128 covers the
-        /// fixed keys and brackets, 48 the two counts, and 32 each thread entry's keys.
-        /// Only a hint (escapes can make the JSON longer), so it is computed in long, never throws, reads only the window
-        /// of entries that are sent and is capped at 64K chars.
+        /// Initial StringBuilder capacity for <see cref="BuildRequestJson"/>: the length of every string written, plus
+        /// 128 for the fixed keys, 48 for the counts and 32 per sent thread entry. Only a hint, since escapes lengthen
+        /// the JSON. Summed in long so it cannot overflow, and capped at 65,536.
         /// </summary>
         private int EstimateRequestJsonLength(ModerationRequest request)
         {
@@ -706,8 +735,10 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Parses a /v1/moderate response body. Returns null when <paramref name="json"/> is null or is not a
-        /// recognised response; never throws for malformed or truncated JSON.
+        /// Parses a POST /v1/moderate response body, such as one your server or relay passed on, into a result from
+        /// <see cref="ResultSource.Server"/> with <paramref name="latencyMs"/> as its latency. Returns null when
+        /// <paramref name="json"/> is null, not a JSON object, or has no known <c>action</c>; never throws for malformed
+        /// or truncated JSON.
         /// </summary>
         public static ModerationResult? TryParseResponse(string? json, int latencyMs)
         {
@@ -764,6 +795,10 @@ namespace ChatGuard.Unity
                 null);
         }
 
+        /// <summary>
+        /// The local answer <see cref="ChatGuardSettings.OfflineBehavior"/> gives when the server gave none. It is
+        /// degraded, with <see cref="ResultSource.Local"/>, <paramref name="reason"/> and <paramref name="error"/>.
+        /// </summary>
         private ModerationResult Fallback(ModerationRequest request, DegradedReason reason, string? error)
         {
             switch (_settings.OfflineBehavior)
@@ -778,6 +813,11 @@ namespace ChatGuard.Unity
             }
         }
 
+        /// <summary>
+        /// Re-checks a degraded server answer as <see cref="ChatGuardSettings.LocalFilterWhenDegraded"/> describes,
+        /// recomputing verdicts, severity and action. The server's other fields and <see cref="ResultSource.Server"/>
+        /// are kept.
+        /// </summary>
         private ModerationResult MergeWithLocal(ModerationResult server, ModerationRequest request)
         {
             NormalizedMessage normalized = NormalizedMessage.Create(request.message);
@@ -797,10 +837,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The <see cref="ModerationResult.Error"/> of a non-200 answer: "HTTP " and the status code, then the body. A
-        /// problem description (the API's JSON errors) is given as plain text, its title, detail and per-field errors,
-        /// then its code and retry_after, so a detail is never cut off (a suspended organization's names the support
-        /// address). Any other body is quoted, cut to its first 200 characters.
+        /// The <see cref="ModerationResult.Error"/> text for a non-200 answer: "HTTP nnn: " and the body. A problem
+        /// description (the API's JSON error body) becomes plain text of up to 1,000 characters, so a normal detail stays
+        /// whole. Any other body is cut to its first 200 characters.
         /// </summary>
         internal static string DescribeHttpError(long statusCode, string? body)
         {
@@ -820,9 +859,9 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Plain text of a problem description, for example "Organization suspended. This organization is suspended, so
-        /// its API keys are refused. Contact support@chatguard.dev. (code: org_suspended)", capped at 1,000 characters.
-        /// Null when the body is not a JSON object with a title, detail, errors, code or retry_after.
+        /// Plain text of a problem description, such as "Organization suspended. This organization is suspended, so its
+        /// API keys are refused. Contact support@chatguard.dev. (code: org_suspended)". Null when the body is over 65,536
+        /// characters or is not a JSON object with a title, detail, errors, code or retry_after.
         /// </summary>
         private static string? DescribeProblem(string? body)
         {
@@ -896,7 +935,9 @@ namespace ChatGuard.Unity
             return text.Length > MaxProblemChars ? text.ToString(0, MaxProblemChars) : text.ToString();
         }
 
-        /// <summary>Appends a sentence, after ". " (or a space when the text so far ends a sentence); blank ones are skipped.</summary>
+        /// <summary>
+        /// Appends a trimmed sentence after ". ", or after a space when the text so far ends a sentence; skips blank ones.
+        /// </summary>
         private static void AppendSentence(StringBuilder text, string? sentence)
         {
             if (string.IsNullOrWhiteSpace(sentence))
@@ -914,16 +955,14 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// The UnityWebRequest of one
-        /// <see cref="Moderate(ModerationRequest, Action{ModerationResult}, CancellationToken)"/> call. It carries the
-        /// call's state (client, operation, start timestamp), so a single static completion handler serves every request
-        /// and no closure, delegate or Stopwatch is created per call.
+        /// The UnityWebRequest of one <c>Moderate</c> call. It carries the call's state, so one static completion handler
+        /// serves every request and no closure, delegate or Stopwatch is created per call.
         /// </summary>
         private sealed class ModerationWebRequest : UnityWebRequest
         {
             /// <summary>
-            /// The completion handler of every request, created once. It lives here rather than on ChatGuardClient, which
-            /// has no type initializer on purpose (see <see cref="Filter"/>).
+            /// The completion handler of every request, created once. It lives here because ChatGuardClient has no type
+            /// initializer on purpose (see <see cref="Filter"/>).
             /// </summary>
             internal static readonly Action<UnityEngine.AsyncOperation> CompletedHandler = OnCompleted;
 

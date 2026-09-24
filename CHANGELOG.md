@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.5.0 — 2026-09-24
+
+A shorter namespace, a rebuilt Basic Chat sample, a README that says up front what the service costs, and a
+license of its own for the GitHub copy.
+
+- The namespace is now `ChatGuard`. `ChatGuard.Core` and the class names are unchanged.
+- `ModerationOperation.IsCancelled` is now `IsCanceled`, the spelling .NET uses (`Task.IsCanceled`).
+- `package.json`: the author is Proper Assets (https://chatguard.dev), and `unityRelease` is `42f1`, the 2021.3
+  patch the package is tested on. It now lists two dependencies: the UnityWebRequest module
+  (`com.unity.modules.unitywebrequest`), so the package also compiles in a project that had that module turned
+  off, and Unity UI (`com.unity.ugui`), which the Basic Chat sample uses.
+- Basic Chat sample, rebuilt in Chat Guard's own look: paper windows on the pink page, a verdict log whose aligned
+  stamps give each line's action, reason and time, and Last check with the selected line's six scores, severity and
+  target. A player picker next to the message field chooses who speaks, one of five players, each with its own
+  player id; **Play example** sends the example chat from chatguard.dev, one line every 820 ms; **Clear** empties
+  the log, the chat and the context. Global chat shows only what other players get. Its sliders are labeled as
+  local-decision thresholds: they apply only when the package answers on the device. On a portrait screen the log,
+  Last check and the thresholds share one window as tabs, with 44 px controls. The UI is built in code with Unity
+  UI, and checks still in flight are canceled when the sample is destroyed.
+- The Basic Chat sample bundles the fonts Inter, Inter Tight and JetBrains Mono (SIL Open Font License 1.1), with
+  each family's license text beside them. The new `Third-Party Notices.txt` at the package root lists them.
+- Basic Chat logs no obsolete-API warning on Unity 2023.1 and newer: it finds the EventSystem through
+  `EventSystem.current` instead of `FindObjectOfType`. In a project that reads input only through the Input System
+  package, the EventSystem it creates gets an `InputSystemUIInputModule` instead of a `StandaloneInputModule`, which
+  could not read input there. The sample now has its own assembly definition, which turns that on when the Input
+  System package is installed.
+- README: a note at the top that a Chat Guard account is required, with the Free plan's 10,000 messages every
+  30 days, paid plans from $29 a month with extra messages at $0.25 per 1,000, and links to the rate limits,
+  pricing, terms and privacy. The quick start says to open the sample scene,
+  `Assets/Samples/Chat Guard/<version>/Basic Chat/BasicChat.unity`, before pressing Play, and what the sample
+  shows. A Third-party notices section names the sample's fonts and their license. A Privacy section
+  covers the bundle id every request carries (`X-ChatGuard-App`, which names the game, not a player; for Free
+  organizations the service keeps it for 30 days), that messages are not used to train models, and that
+  aggregate statistics that identify no player may improve the built-in word lists. A License section says
+  which license covers each copy and that you may include the package, changed or unchanged, in the builds of
+  your games and apps. The relay example lives in the GitHub repository and is not part of the Asset Store
+  copy. The pinned-release example uses `#v0.5.0`.
+- License: the GitHub copy now has its own license (`LICENSE.md` in the repository); releases before 0.5.0 keep
+  the license they were published with. Copies from the Unity Asset Store are covered by the Unity Asset Store
+  EULA.
+
 ## 0.4.1 — 2026-09-23
 
 The Chat Guard Hook sends a player id, the build check also reads the configs your scenes use, and
@@ -54,7 +95,7 @@ The API key is the only setting you need.
   `ChatGuardSdk.Configure("cg_pub_...")` and `new ChatGuardClient("cg_pub_...")` work with the key alone (their
   `baseUrl` parameter is optional now), `ChatGuardSettings.BaseUrl` defaults to the API, and a new `ChatGuardConfig`
   asset comes with the URL filled in.
-- **Behaviour change:** a blank base URL (null, empty or whitespace) now means the default API instead of "local filter
+- **Behavior change:** a blank base URL (null, empty or whitespace) now means the default API instead of "local filter
   only", so a config asset saved by an earlier version with a key and an empty URL starts calling the API. Only an
   empty key keeps a client on the local filter: `HasServer` is true whenever a key is set, and the offline error reads
   "no API key configured". A base URL with spaces around it is trimmed.
@@ -77,21 +118,21 @@ The API key is the only setting you need.
 Cancellation tokens for `Moderate`, a stricter build check for test keys and the game's bundle id on every request
 (first three entries), then performance work with no API changes. Normalized text, JSON bodies and results are
 identical to 0.2.1, checked by differential tests on .NET and on Unity 2021.3's Mono; apart from those three entries,
-the two fixes at the end are the only intended behaviour changes. Figures are for Unity 2021.3's embedded Mono runtime (the one the editor and Mono
-players use); the server round trip figures were measured in a Mono player, and its IL2CPP figure is labelled.
+the two fixes at the end are the only intended behavior changes. Figures are for Unity 2021.3's embedded Mono runtime (the one the editor and Mono
+players use); the server round trip figures were measured in a Mono player, and its IL2CPP figure is labeled.
 
 - `Moderate` takes an optional `CancellationToken`: `ChatGuardSdk.Moderate(text, playerId, token)` and
   `ChatGuardSdk.Moderate(text, playerId, onCompleted, token)`, the same two with a `ModerationRequest`, and
-  `ChatGuardClient.Moderate(request, token)` / `Moderate(request, onCompleted, token)`. Cancelling the token does what
+  `ChatGuardClient.Moderate(request, token)` / `Moderate(request, onCompleted, token)`. Canceling the token does what
   `op.Cancel()` does: the request is aborted, `onCompleted` and `Completed` are not invoked, and `await` throws
   `OperationCanceledException` carrying the token (after `op.Cancel()` it carries `CancellationToken.None`). A token
-  that is already cancelled gives back a cancelled operation without sending a request. The SDK stops listening to the
-  token when the operation finishes, so one long-lived token can serve every message, and a token cancelled on
+  that is already canceled gives back a canceled operation without sending a request. The SDK stops listening to the
+  token when the operation finishes, so one long-lived token can serve every message, and a token canceled on
   another thread takes effect on the main thread. A call without a token costs nothing extra; a live token adds about
   144 B per message (about 304 B when `Moderate` is called from inside an `async` method), because the SDK registers
   with it without capturing the execution context. `async` methods that await the operation keep their own
   `AsyncLocal` values as before; only a continuation passed straight to the awaiter's `OnCompleted` now runs in the
-  context of whoever cancelled the token. Works with `destroyCancellationToken` (Unity 2022.2+) and UniTask's
+  context of whoever canceled the token. Works with `destroyCancellationToken` (Unity 2022.2+) and UniTask's
   `GetCancellationTokenOnDestroy()`. 0.2.0 dropped tokens together with `ModerateAsync`; a token needs no thread or
   timer, so the SDK still uses no `System.Threading.Tasks` and tokens work on WebGL (`CancelAfter` is the exception:
   it needs a timer thread; use `TimeoutSeconds` for timeouts).
@@ -156,7 +197,7 @@ players use); the server round trip figures were measured in a Mono player, and 
   (`ChatGuardBuildCheck`, an `IPreprocessBuildWithReport`). Dedicated Server builds are exempt; publishable and test
   keys pass. This is a build-time complement to the runtime warning that already fires when a server key runs in a
   player.
-- `package.json` links the changelog and the MIT license; the package is published under
+- `package.json` links the changelog and the license; the package is published under
   https://github.com/chatguard-dev/chat-guard-unity.
 
 ## 0.2.0 — 2026-09-22
@@ -169,7 +210,7 @@ players use); the server round trip figures were measured in a Mono player, and 
 - `ModerationOperation` is awaitable without Tasks: `ModerationResult result = await ChatGuardSdk.Moderate(text,
   playerId);` works from `async void` methods, Unity 2023.1+ `async Awaitable` methods and UniTask code.
   `GetAwaiter()` returns a struct implementing `INotifyCompletion` (`System.Runtime.CompilerServices`); no
-  `Task` is created, the continuation runs on the main thread, awaiting a cancelled operation throws
+  `Task` is created, the continuation runs on the main thread, awaiting a canceled operation throws
   `OperationCanceledException`, and it works on WebGL.
 - New static API for the common case: `ChatGuardSdk.Moderate(text, playerId, result => ...)`,
   `ChatGuardSdk.ModerateCoroutine(...)`, the `Configure(settings | config | client | apiKey, baseUrl)`
@@ -191,7 +232,7 @@ players use); the server round trip figures were measured in a Mono player, and 
 - `ChatGuardSettings.TimeoutSeconds` is capped at 600 s (`ChatGuardSettings.MaxTimeoutSeconds`) and NaN or
   infinity are rejected; the budget is rounded up to whole seconds with a minimum of 1 s for `UnityWebRequest`.
 - `ChatGuardUnityHook`: new `configureStaticApi` toggle (on by default) makes its config the
-  `ChatGuardSdk` default in `Awake`; in-flight requests are cancelled in `OnDestroy`.
+  `ChatGuardSdk` default in `Awake`; in-flight requests are canceled in `OnDestroy`.
 - The editor tester window and the Basic Chat sample use the new API.
 
 ## 0.1.0 — 2026-09-22

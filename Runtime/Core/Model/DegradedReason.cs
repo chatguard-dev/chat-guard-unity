@@ -3,31 +3,53 @@ using System;
 
 namespace ChatGuard.Core
 {
-    /// <summary>Why a response was produced by the local filter instead of Jev.</summary>
+    /// <summary>
+    /// Why a result is degraded: the moderation model (Jev) did not judge the message, so a fallback decided. The
+    /// fallback is the local filter, or whatever <c>OfflineBehavior</c> selects when the Unity client gets no usable
+    /// server answer.
+    /// </summary>
     public enum DegradedReason
     {
-        /// <summary>Not degraded.</summary>
+        /// <summary>Not degraded: the model answered, or a project block rule matched before it was asked.</summary>
         None = 0,
 
-        /// <summary>The organization is over its message quota and the plan has no overage.</summary>
+        /// <summary>
+        /// Set by the server: the organization used up its plan's verdict allowance, and the plan has no overage,
+        /// such as Free.
+        /// </summary>
         Quota = 1,
 
-        /// <summary>Jev returned an error (5xx, 529) or an unparseable response.</summary>
+        /// <summary>
+        /// On the server: the model call failed or gave an unreadable answer. In the Unity client: the Chat Guard API
+        /// answered with a status other than 200 or 429, or an unreadable body.
+        /// </summary>
         Upstream = 2,
 
-        /// <summary>Jev or the shared limiter returned 429.</summary>
+        /// <summary>
+        /// A rate limit was hit. On the server: the model provider answered 429, or a server limit on model calls ran
+        /// out, such as the per-minute allowance all Free organizations share, or the separate one test keys share. In
+        /// the Unity client: the Chat Guard API answered 429.
+        /// </summary>
         UpstreamRateLimit = 3,
 
-        /// <summary>The Jev call exceeded its latency budget.</summary>
+        /// <summary>
+        /// Set by the server: the model call ran out of time. A Unity client timeout reports <see cref="Offline"/>.
+        /// </summary>
         Timeout = 4,
 
-        /// <summary>The client had no connectivity (Unity offline mode).</summary>
+        /// <summary>
+        /// Set by the Unity client: no API key is set, or the request could not be sent, hit a network error or timed
+        /// out.
+        /// </summary>
         Offline = 5,
     }
 
     public static class DegradedReasons
     {
-        /// <summary>Wire name, or null for <see cref="DegradedReason.None"/>.</summary>
+        /// <summary>
+        /// The name in API JSON (<c>degraded_reason</c>), such as <c>upstream_rate_limit</c>; null for
+        /// <see cref="DegradedReason.None"/>.
+        /// </summary>
         public static string? ToWireName(DegradedReason reason)
         {
             switch (reason)
@@ -42,6 +64,10 @@ namespace ChatGuard.Core
             }
         }
 
+        /// <summary>
+        /// Parses a name from API JSON, ignoring case and surrounding spaces. Null or empty gives
+        /// <see cref="DegradedReason.None"/> and true; an unknown name gives None and false.
+        /// </summary>
         public static bool TryParse(string? name, out DegradedReason reason)
         {
             switch ((name ?? string.Empty).Trim().ToLowerInvariant())

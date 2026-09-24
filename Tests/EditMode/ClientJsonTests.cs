@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using ChatGuard.Core;
-using ChatGuard.Unity;
 using NUnit.Framework;
 
 namespace ChatGuard.Tests
@@ -62,7 +61,7 @@ namespace ChatGuard.Tests
             Assert.That(ChatGuardClient.TryParseResponse(null, 0), Is.Null);
         }
 
-        /// <summary>A body cut off anywhere (a dropped connection, a proxy limit) is unparseable, never an exception.</summary>
+        /// <summary>A body cut off anywhere (a dropped connection, a proxy limit) returns null, never throws.</summary>
         [Test]
         public void TryParseResponse_EveryTruncation_ReturnsNull()
         {
@@ -105,9 +104,9 @@ namespace ChatGuard.Tests
             Assert.That(root.ContainsKey("request_id"), Is.False);
         }
 
-        // The exact strings below were captured from the 0.2.1 serializer (a Dictionary tree written by MiniJson.Write),
-        // so they pin the request bytes: key order, which fields are omitted and escaping. The thread and count cases
-        // follow the 0.4.1 rules: what the API would refuse with a 400 is skipped, cut or capped before sending.
+        // The exact strings below pin the request body: key order, which fields are left out, and escaping. Thread
+        // entries and counts that would make the API refuse the whole message (HTTP 400) are skipped, cut or capped
+        // before sending. RequestBytesTests checks that the uploaded UTF-8 bytes match these strings.
         private static ChatGuardClient DefaultsClient()
         {
             return new ChatGuardClient("cg_test_x", "https://api.example.com");
@@ -168,8 +167,9 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// The API refuses a whole message whose thread has an entry without text (ThreadEntry.text defaults to ""), so
-        /// such entries and null ones are skipped wherever they are, and a thread left empty is not sent at all.
+        /// The API refuses the whole message when any thread entry is null or has no text (<c>ThreadEntry.text</c>
+        /// defaults to ""). Such entries are skipped before or inside the window of the last five entries with text,
+        /// and a thread left empty is not sent at all.
         /// </summary>
         [Test]
         public void RequestJson_NullAndEmptyThreadEntries_AreSkipped_ExactString()
@@ -205,8 +205,9 @@ namespace ChatGuard.Tests
         }
 
         /// <summary>
-        /// ModerationResult.Error of a non-200 answer: problem descriptions become plain text with nothing cut off (the
-        /// suspended organization's detail ends with the support address, past the 200 characters of a quoted body).
+        /// The <c>ModerationResult.Error</c> text of a non-200 answer. A problem description (the API's JSON error
+        /// body) becomes plain text of up to 1,000 characters, while other bodies are cut to 200. The suspended
+        /// organization's body shows why: a 200-character cut would clip its support address.
         /// </summary>
         [Test]
         public void DescribeHttpError_ProblemDescriptions_ArePlainTextAndWhole()

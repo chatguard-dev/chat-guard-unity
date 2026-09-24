@@ -9,14 +9,19 @@ namespace ChatGuard.Core.Filtering
 {
     public enum CustomRuleKind
     {
-        /// <summary>Exempts a term from the built-in lists (and, with a category, zeroes that verdict).</summary>
+        /// <summary>
+        /// Exempts its term from the word lists or, with a <see cref="CustomRule.Category"/>, suppresses that category.
+        /// </summary>
         Allow = 0,
 
-        /// <summary>An immediate block, evaluated before any model call.</summary>
+        /// <summary>Blocks any message it matches, before the model is called. Allow rules do not override it.</summary>
         Block = 1,
     }
 
-    /// <summary>A project-defined allow or block rule (custom_rules rows of kind allow/block).</summary>
+    /// <summary>
+    /// A project's allow or block rule, set in the Chat Guard dashboard and applied by the server. The Unity client
+    /// never receives rules, so its local filter runs without them.
+    /// </summary>
     public sealed class CustomRule
     {
         private string? _key;
@@ -34,18 +39,27 @@ namespace ChatGuard.Core.Filtering
 
         public CustomRuleKind Kind { get; }
 
-        /// <summary>A term/phrase (matched on normalized tokens) or a regular expression (matched on normalized text).</summary>
+        /// <summary>
+        /// A word or phrase of up to 6 words, matched as whole words with accents ignored, or a regular expression when
+        /// <see cref="IsRegex"/> is true. Both match the normalized message: lowercase, with leetspeak and look-alike
+        /// letters mapped (see <see cref="TextNormalizer.Normalize"/>). At most
+        /// <see cref="CompiledRuleSet.MaxPatternLength"/> characters.
+        /// </summary>
         public string Pattern { get; }
 
         public bool IsRegex { get; }
 
-        /// <summary>For allow rules: the verdict category this rule exempts. Null = only the local filter is affected.</summary>
+        /// <summary>
+        /// Allow rules only. With a category, a match suppresses that category: the local filter ignores its word-list
+        /// hits and the server sets the model's verdict for it to 0. Null exempts only the word-list term equal to the
+        /// normalized <see cref="Pattern"/> and affects only the local filter. A regex rarely equals a term, so a regex
+        /// allow rule needs a category to have an effect.
+        /// </summary>
         public VerdictCategory? Category { get; }
 
         /// <summary>
-        /// The normalized, folded pattern a category-less allow rule exempts. Computed on first use and
-        /// cached with Volatile.Read and Interlocked.CompareExchange, so a rule shared between threads is safe
-        /// on ARM64 (IL2CPP or Mono) too. A race may compute it twice; every caller gets the first published value.
+        /// The normalized, folded pattern that a category-less allow rule compares with <see cref="TermHit{T}.Key"/>.
+        /// Cached on first use with the same thread-safe pattern as that property.
         /// </summary>
         internal string Key
         {
@@ -63,7 +77,10 @@ namespace ChatGuard.Core.Filtering
         }
     }
 
-    /// <summary>Thrown by <see cref="CompiledRuleSet.Compile(System.Collections.Generic.IEnumerable{CustomRule})"/> when a rule cannot be used.</summary>
+    /// <summary>
+    /// Thrown by <see cref="CompiledRuleSet.Compile(System.Collections.Generic.IEnumerable{CustomRule})"/> and its
+    /// overload for an invalid rule. The message names the rule and the problem.
+    /// </summary>
     public sealed class RuleCompilationException : Exception
     {
         public RuleCompilationException(string ruleId, string message)
@@ -76,12 +93,12 @@ namespace ChatGuard.Core.Filtering
     }
 
     /// <summary>
-    /// Project rules compiled once and reused across requests. Regular expressions run with a match
-    /// timeout (default 20 ms) and without RegexOptions.Compiled, which is unavailable on IL2CPP.
-    /// A regex that times out is treated as a non-match.
+    /// A project's allow and block rules, compiled once for reuse across requests and threads. Regular expressions
+    /// ignore case, and one that exceeds its match timeout (default 20 ms) counts as no match.
     /// </summary>
     public sealed class CompiledRuleSet
     {
+        /// <summary>Longest allowed <see cref="CustomRule.Pattern"/>, in UTF-16 code units.</summary>
         public const int MaxPatternLength = 200;
 
         public static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromMilliseconds(20);
@@ -99,11 +116,21 @@ namespace ChatGuard.Core.Filtering
 
         public int Count { get; private set; }
 
+        /// <summary>
+        /// Compiles <paramref name="rules"/> with a regex match timeout of <see cref="DefaultRegexTimeout"/>.
+        /// </summary>
+        /// <exception cref="RuleCompilationException">Any rule is invalid; the whole set fails.</exception>
         public static CompiledRuleSet Compile(IEnumerable<CustomRule> rules)
         {
             return Compile(rules, DefaultRegexTimeout);
         }
 
+        /// <summary>
+        /// Compiles <paramref name="rules"/>, giving each regex match at most <paramref name="regexTimeout"/>. The
+        /// timeout must be positive or <see cref="Regex.InfiniteMatchTimeout"/>; otherwise the first regex rule fails
+        /// as if its pattern were invalid.
+        /// </summary>
+        /// <exception cref="RuleCompilationException">Any rule is invalid; the whole set fails.</exception>
         public static CompiledRuleSet Compile(IEnumerable<CustomRule> rules, TimeSpan regexTimeout)
         {
             if (rules == null)
@@ -124,6 +151,7 @@ namespace ChatGuard.Core.Filtering
                     Regex regex;
                     try
                     {
+                        // No RegexOptions.Compiled: it is unavailable on IL2CPP.
                         regex = new Regex(rule.Pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, regexTimeout);
                     }
                     catch (ArgumentException ex)
@@ -148,10 +176,10 @@ namespace ChatGuard.Core.Filtering
             return set;
         }
 
-        /// <summary>The first matching block rule, or null.</summary>
+        /// <summary>The first matching block rule, or null. Word and phrase rules are checked first.</summary>
         internal CustomRule? FirstBlockMatch(NormalizedMessage message, string[][] candidates)
         {
-            // Sets with only allow rules (and the empty set) cannot block; skip the lookups and the list.
+            // Allow-only and empty sets cannot block, so skip the lookups and the list allocation.
             if (_blockTerms.Count == 0 && _blockRegexes.Count == 0)
             {
                 return null;

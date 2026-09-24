@@ -219,8 +219,8 @@ Camera:
   m_GameObject: {fileID: 963194225}
   m_Enabled: 1
   serializedVersion: 2
-  m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_ClearFlags: 2
+  m_BackGroundColor: {r: 0.9529412, g: 0.5254902, b: 0.6313726, a: 1}
   m_projectionMatrixMode: 1
   m_SensorSize: {x: 36, y: 24}
   m_LensShift: {x: 0, y: 0}
@@ -310,3 +310,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   config: {fileID: 0}
+  fonts:
+    display: {fileID: 12800000, guid: f31c52e545ae4389a108b6be5b8f79ea, type: 3}
+    text: {fileID: 12800000, guid: 71b0dc6eeedd4debb4bd785e1ba79c60, type: 3}
+    textMedium: {fileID: 12800000, guid: 7db933c52dc5437fbb4e809e3f920bca, type: 3}
+    textSemiBold: {fileID: 12800000, guid: 9c7b40f792474542b610c4eb2a91607a, type: 3}
+    mono: {fileID: 12800000, guid: 1a61303c25f94ea2803bed5f15d43048, type: 3}
+    monoMedium: {fileID: 12800000, guid: c58ff37f3b3047efa62b93ef5d928d18, type: 3}

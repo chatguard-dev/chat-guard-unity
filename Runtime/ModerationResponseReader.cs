@@ -6,37 +6,49 @@ using System.Threading;
 using ChatGuard.Core;
 using Unity.Collections;
 
-namespace ChatGuard.Unity
+namespace ChatGuard
 {
     /// <summary>
-    /// Reads a /v1/moderate 200 body straight from its UTF-8 bytes in one pass: no body string, no Dictionary tree.
-    /// It only handles the plain case the server writes, and answers null ("not handled") for everything else, in which
-    /// case the caller runs the string path (<c>DownloadHandler.text</c> + <see cref="ChatGuardClient.TryParseResponse"/>)
-    /// and unusual bodies get exactly the string path's result by construction. Not handled: any byte of 0x80 or
-    /// above, any control byte other than tab, LF and CR (DEL included), any backslash, a root that is not an object,
-    /// invalid JSON or trailing content, nesting deeper than <see cref="MaxDepth"/>, a number token longer than
-    /// <see cref="MaxNumberLength"/> characters or one that <c>double.TryParse</c> rejects, a known key twice in the same
-    /// object, a known key whose value has another JSON type than expected (null is accepted and means missing, as
-    /// MiniJson's getters treat it), and action, target choice or degraded reason values that are not exactly a
-    /// lowercase wire name (a missing or null action included). A body in native memory longer than
-    /// <see cref="MaxBodyLength"/> bytes is not handled either. A handled body gives the same
-    /// <see cref="ModerationResult"/> as <see cref="ChatGuardClient.TryParseResponse"/> on its UTF-8 text: every byte
-    /// read is ASCII, so each character is the byte itself, and numbers go through the same
-    /// <c>double.TryParse(ReadOnlySpan&lt;char&gt;, NumberStyles.Float, CultureInfo.InvariantCulture)</c> call as
-    /// MiniJson on the same characters.
+    /// Reads a 200 body from <c>POST /v1/moderate</c> straight from its UTF-8 bytes in one pass, with no body string
+    /// or Dictionary tree. It handles only the plain JSON the server writes and returns null ("not handled") for
+    /// anything else. The caller then takes the string path (<c>DownloadHandler.text</c> +
+    /// <see cref="ChatGuardClient.TryParseResponse"/>), so an unusual body gets exactly the string path's result.
     /// </summary>
+    /// <remarks>
+    /// Unknown keys are skipped, but their values must still pass the byte, syntax, depth and number rules below.
+    /// Not handled:
+    /// <list type="bullet">
+    /// <item>any byte of 0x80 or above, and any control byte other than tab, LF and CR (DEL included);</item>
+    /// <item>any backslash;</item>
+    /// <item>a root that is not an object, or JSON that <see cref="MiniJson.Parse"/> rejects (malformed, truncated or
+    /// followed by more content);</item>
+    /// <item>nesting deeper than <see cref="MaxDepth"/>;</item>
+    /// <item>a number token longer than <see cref="MaxNumberLength"/> characters, or one <c>double.TryParse</c>
+    /// rejects;</item>
+    /// <item>a known key twice in the same object;</item>
+    /// <item>a known key with a value of an unexpected JSON type. Null is accepted and means missing, as in MiniJson's
+    /// getters;</item>
+    /// <item>a missing or null action, and an action, target choice or degraded reason that is not exactly a
+    /// lowercase wire name;</item>
+    /// <item>a body in native memory longer than <see cref="MaxBodyLength"/> bytes.</item>
+    /// </list>
+    /// A handled body gives the same <see cref="ModerationResult"/> as <see cref="ChatGuardClient.TryParseResponse"/>
+    /// on its UTF-8 text. Every byte read is ASCII, so each character equals its byte. Numbers go through the same
+    /// <c>double.TryParse(ReadOnlySpan&lt;char&gt;, NumberStyles.Float, CultureInfo.InvariantCulture)</c> call as
+    /// MiniJson.
+    /// </remarks>
     internal static class ModerationResponseReader
     {
         /// <summary>Deepest container nesting handled; the root object is level 1.</summary>
         internal const int MaxDepth = 16;
 
-        /// <summary>Longest number token handled, in characters.</summary>
+        /// <summary>Longest number token handled, in characters; also the size of ReadNumber's stack buffer.</summary>
         internal const int MaxNumberLength = 64;
 
         /// <summary>
-        /// Longest body read from native memory, in bytes. The server's body is under 1 KB, so a longer 200 body is
-        /// something else (an HTML page from a proxy or a wrong base URL, for example) and is left to the string path
-        /// without being copied here. The reusable buffer never grows past this.
+        /// Longest body read from native memory, in bytes. The server's body is under 1 KB, so a 200 body over this
+        /// limit is something else, such as an HTML page from a proxy or a wrong base URL. It goes to the string path
+        /// uncopied, so the reusable buffer never grows past this size.
         /// </summary>
         internal const int MaxBodyLength = 64 * 1024;
 
@@ -53,25 +65,24 @@ namespace ChatGuard.Unity
         private const int KeyId = 256;
         private const int KeyQuota = 512;
 
-        // One buffer per thread, like Utf8RequestJsonSink's. In the SDK only ChatGuardClient.Finish reaches it, and
-        // Finish runs on the main thread (UnityWebRequest completions always do), so in practice this is a single
-        // buffer; being per thread keeps TryRead safe if it is ever called from another thread.
+        // One buffer per thread, like Utf8RequestJsonSink's. In the SDK only ChatGuardClient.Finish reaches it, on the
+        // main thread, so in practice there is one buffer; being per thread keeps a call from another thread safe.
         [ThreadStatic]
         private static byte[]? t_body;
 
-        // The model name repeats from one response to the next; reusing the last instance saves a string per message.
-        // Volatile, because a plain store does not guarantee another thread sees the string's characters on ARM64.
+        // The model name repeats between responses, so reusing the last instance saves a string per message. Accessed
+        // through Volatile: on ARM64 a plain store does not guarantee another thread sees the string's characters.
         private static string? s_lastModel;
 
         /// <summary>
-        /// Reads a body held in native memory (<c>DownloadHandler.nativeData</c>) by copying it into this thread's reusable
-        /// buffer first. Null when the body is not handled (see the class summary), including an empty body and one
-        /// longer than <see cref="MaxBodyLength"/> bytes.
+        /// Reads a body held in native memory (<c>DownloadHandler.nativeData</c>) after copying it into this thread's
+        /// reusable buffer. Returns null when the body is not handled (see the class remarks), including when it is
+        /// empty or longer than <see cref="MaxBodyLength"/> bytes.
         /// </summary>
         internal static ModerationResult? TryRead(NativeArray<byte>.ReadOnly body, int latencyMs)
         {
-            // Length only: NativeArray<T>.ReadOnly.IsCreated does not exist before Unity 2021.3.3, and a ReadOnly
-            // without memory (DownloadHandler's default nativeData) has Length 0 on every version.
+            // Length only: NativeArray<T>.ReadOnly.IsCreated does not exist before Unity 2021.3.3, and a ReadOnly with
+            // no memory behind it (DownloadHandler's default nativeData) has Length 0 on every version.
             if (body.Length == 0 || body.Length > MaxBodyLength)
             {
                 return null;
@@ -89,7 +100,10 @@ namespace ChatGuard.Unity
             return TryRead(buffer, length, latencyMs);
         }
 
-        /// <summary>Reads <c>json[0..length)</c>. Null when the body is not handled (see the class summary).</summary>
+        /// <summary>
+        /// Reads the first <paramref name="length"/> bytes of <paramref name="json"/>. Returns null when the body is
+        /// not handled (see the class remarks).
+        /// </summary>
         internal static ModerationResult? TryRead(byte[] json, int length, int latencyMs)
         {
             var reader = new Reader(json, length);
@@ -98,8 +112,7 @@ namespace ChatGuard.Unity
                 return null;
             }
 
-            // Built only for a handled body. The constructor clamps each value through the indexer, exactly as
-            // TryParseResponse's assignments do.
+            // The VerdictSet constructor clamps each value through its indexer, as TryParseResponse's assignments do.
             var verdicts = new VerdictSet(f.Insult, f.Threat, f.Hate, f.Sexual, f.Spam, f.Trading);
             TargetVerdict? target = f.HasTarget ? new TargetVerdict(f.Choice, f.Confidence) : null;
             string model = f.ModelLength < 0 ? string.Empty : Model(json, f.ModelStart, f.ModelLength);
@@ -108,11 +121,12 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// True when <c>DownloadHandler.text</c> decodes a body with this Content-Type as UTF-8 without logging anything,
-        /// so that ASCII bytes read directly give the same characters: no header, no <c>charset</c>, no <c>=</c> after it,
-        /// or a charset value that is exactly <c>utf-8</c> in any case once trimmed the way <c>DownloadHandler.text</c>
-        /// trims it (spaces, then quotes, then spaces, then cut at ';'). False (not handled) for anything else, including
-        /// a header with characters outside printable ASCII; the string path then decodes the body as it always did.
+        /// True when <c>DownloadHandler.text</c> decodes a body with this Content-Type as UTF-8 without logging
+        /// anything, so ASCII bytes read directly give the same characters. Accepted: no header, no <c>charset</c>, no
+        /// <c>=</c> after it, or a charset value equal to <c>utf-8</c> in any letter case. The value is compared after
+        /// trimming it as <c>DownloadHandler.text</c> does: spaces, then quotes, then spaces, then cut at the first
+        /// <c>;</c>. Anything else, including a header with any character outside printable ASCII, is false (not
+        /// handled) and left to the string path.
         /// </summary>
         internal static bool IsUtf8ContentType(string? contentType)
         {
@@ -170,7 +184,10 @@ namespace ChatGuard.Unity
                 && header[start + 4] == '8';
         }
 
-        /// <summary>First index of "charset" in any ASCII case (the header is printable ASCII here), or -1.</summary>
+        /// <summary>
+        /// First index of <c>charset</c> in any letter case, or -1. ASCII case folding is enough: the caller has
+        /// already declined any header with a character outside printable ASCII.
+        /// </summary>
         private static int IndexOfCharset(string header)
         {
             const string word = "charset";
@@ -280,11 +297,10 @@ namespace ChatGuard.Unity
         }
 
         /// <summary>
-        /// Cursor over the body. ReadResponse, the other Read* methods and SkipValue return false when the body is
-        /// not handled, and <see cref="NextMember"/> returns <see cref="Invalid"/> for that. Take, TakeNull,
-        /// TakeLiteral and KeyIs return false only to say that the expected token or key is not the next one: the
-        /// cursor does not move, the caller tries its next alternative, and that false alone does not mean the body
-        /// is not handled.
+        /// Cursor over the body. ReadResponse, the other Read* methods and SkipValue return false when the body is not
+        /// handled, and <see cref="NextMember"/> returns <see cref="Invalid"/>. Take, TakeNull and TakeLiteral return
+        /// false when the next token is not the expected one, and KeyIs when the byte range holds other text. That
+        /// false leaves the cursor in place for the caller's next alternative and alone does not mean "not handled".
         /// </summary>
         private struct Reader
         {
@@ -398,10 +414,14 @@ namespace ChatGuard.Unity
                 }
             }
 
-            // The enum readers below compare with Core's wire names; each enum's values run from 0 (DegradedReason.None,
-            // which has no wire name, aside) without gaps.
+            // The enum readers below loop over each enum's range and compare with Core's wire names. That relies on
+            // each enum having no gaps, and on VerdictCategory starting at 0. DegradedReason.None has no wire name, so
+            // its loop starts at Quota.
 
-            /// <summary>"action": a string that is exactly a wire name (null is not handled: TryParseResponse returns null).</summary>
+            /// <summary>
+            /// <c>action</c>: a string that is exactly a wire name. Null is not handled, since TryParseResponse returns
+            /// null for it.
+            /// </summary>
             private bool ReadAction(out ModerationAction action)
             {
                 action = ModerationAction.Allow;
@@ -422,7 +442,7 @@ namespace ChatGuard.Unity
                 return false;
             }
 
-            /// <summary>"degraded_reason": null (None) or a string that is exactly a wire name.</summary>
+            /// <summary><c>degraded_reason</c>: null (None) or a string that is exactly a wire name.</summary>
             private bool ReadDegradedReason(out DegradedReason reason)
             {
                 reason = DegradedReason.None;
@@ -448,7 +468,10 @@ namespace ChatGuard.Unity
                 return false;
             }
 
-            /// <summary>"verdicts": null or an object whose known categories are null or {"p": number or null}.</summary>
+            /// <summary>
+            /// <c>verdicts</c>: null or an object. Each known category is null or <c>{"p": number or null}</c>; other
+            /// keys are skipped.
+            /// </summary>
             private bool ReadVerdicts(ref Fields f)
             {
                 if (TakeNull())
@@ -505,7 +528,9 @@ namespace ChatGuard.Unity
                 return -1;
             }
 
-            /// <summary>One category: null (0) or an object whose "p" is a number or null (0).</summary>
+            /// <summary>
+            /// One category: null (0) or an object whose <c>p</c> is a number or null (0). Other keys are skipped.
+            /// </summary>
             private bool ReadProbability(out double p)
             {
                 p = 0;
@@ -549,8 +574,8 @@ namespace ChatGuard.Unity
             }
 
             /// <summary>
-            /// "target": null or an object with "choice" (null, or exactly a wire name) and "confidence" (number or null).
-            /// Without a choice there is no target, as in TryParseResponse.
+            /// <c>target</c>: null or an object with <c>choice</c> (null, or exactly a wire name) and <c>confidence</c>
+            /// (number or null). Other keys are skipped. Without a choice there is no target, as in TryParseResponse.
             /// </summary>
             private bool ReadTarget(ref Fields f)
             {
@@ -600,7 +625,7 @@ namespace ChatGuard.Unity
                 }
             }
 
-            /// <summary>"choice": null (no target) or a string that is exactly a wire name.</summary>
+            /// <summary><c>choice</c>: null (no target) or a string that is exactly a wire name.</summary>
             private bool ReadChoice(ref Fields f)
             {
                 if (TakeNull())
@@ -626,7 +651,10 @@ namespace ChatGuard.Unity
                 return false;
             }
 
-            /// <summary>"quota": null or an object whose "used" and "limit" are numbers or null (0).</summary>
+            /// <summary>
+            /// <c>quota</c>: null or an object whose <c>used</c> and <c>limit</c> are numbers or null (0). Other keys
+            /// are skipped.
+            /// </summary>
             private bool ReadQuota(ref Fields f)
             {
                 if (TakeNull())
@@ -702,9 +730,9 @@ namespace ChatGuard.Unity
             }
 
             /// <summary>
-            /// After an object's '{' or after its previous member: moves to the next member's value (returns
-            /// <see cref="Member"/> with the key's content range), or past the closing '}' (<see cref="End"/>);
-            /// returns <see cref="Invalid"/> when the body is not handled.
+            /// Call after an object's <c>{</c> or after its previous member's value. Returns <see cref="Member"/> with
+            /// the key's content range and the cursor on the value, <see cref="End"/> after taking the closing <c>}</c>,
+            /// or <see cref="Invalid"/> when the body is not handled.
             /// </summary>
             private int NextMember(ref bool first, out int keyStart, out int keyLength)
             {
@@ -742,7 +770,10 @@ namespace ChatGuard.Unity
                 return Member;
             }
 
-            /// <summary>Checks and skips any value; containers count toward <see cref="MaxDepth"/> from <paramref name="depth"/>.</summary>
+            /// <summary>
+            /// Checks and skips one value of any type. <paramref name="depth"/> is the nesting level a container here
+            /// would have; deeper than <see cref="MaxDepth"/> is not handled.
+            /// </summary>
             private bool SkipValue(int depth)
             {
                 if (_pos >= _end)
@@ -825,8 +856,8 @@ namespace ChatGuard.Unity
             }
 
             /// <summary>
-            /// A string of printable ASCII, tab, LF or CR without backslashes; gives the content range between the quotes.
-            /// MiniJson returns exactly those characters for it (its escape-free fast path).
+            /// A string of printable ASCII, tab, LF or CR, with no backslash; gives the content range between the
+            /// quotes. MiniJson's escape-free fast path returns exactly those characters for it.
             /// </summary>
             private bool ReadString(out int start, out int length)
             {
@@ -860,8 +891,8 @@ namespace ChatGuard.Unity
             }
 
             /// <summary>
-            /// The token MiniJson.ReadNumber takes (the longest run of "+-0123456789.eE"), parsed by the same double.TryParse
-            /// overload on the same characters, copied to the stack.
+            /// Takes the same token as MiniJson's ReadNumber, the longest run of <c>+-0123456789.eE</c>, and parses it
+            /// with the same <c>double.TryParse</c> overload.
             /// </summary>
             private bool ReadNumber(out double value)
             {
@@ -892,7 +923,10 @@ namespace ChatGuard.Unity
                 return (b >= (byte)'0' && b <= (byte)'9') || b == (byte)'-' || b == (byte)'+' || b == (byte)'.' || b == (byte)'e' || b == (byte)'E';
             }
 
-            /// <summary>Whitespace the reader accepts between tokens: space, tab, LF, CR (a subset of char.IsWhiteSpace).</summary>
+            /// <summary>
+            /// Skips space, tab, LF and CR only. Any other whitespace that MiniJson skips (<c>char.IsWhiteSpace</c>)
+            /// makes the body not handled.
+            /// </summary>
             private void SkipWhitespace()
             {
                 while (_pos < _end)
